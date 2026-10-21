@@ -41,7 +41,8 @@ import {
   BranchLinkItem,
   getStoredBranches,
   saveBranchLinkItem,
-  deleteStoredBranch
+  deleteStoredBranch,
+  isBranchUser
 } from '../utils/license';
 
 interface LicenseManagerModalProps {
@@ -100,7 +101,9 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
     const newItem: BranchLinkItem = {
       id: `br_${Date.now()}`,
       tenantCode: cleanCode,
+      username: cleanCode,
       name: `สาขา ${cleanCode}`,
+      branchPin: '1234',
       daysGranted: effectiveBranchDays,
       createdAt: now.toISOString(),
       expiresAt,
@@ -290,30 +293,35 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
             <span>สถานะ & แพ็กเกจต่ออายุ</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('multidevice')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
-              activeTab === 'multidevice'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Share2 className="w-4 h-4" />
-            <span>สร้างลิงก์สาขา (ทดลองใช้ฟรี 7 วัน)</span>
-          </button>
+          {!isBranchUser() && (
+            <>
+              <button
+                onClick={() => setActiveTab('multidevice')}
+                className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
+                  activeTab === 'multidevice'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Share2 className="w-4 h-4" />
+                <span>สร้างลิงก์สาขา (ทดลองใช้ฟรี 7 วัน)</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab('admin')}
-            className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
-              activeTab === 'admin'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
-            }`}
-          >
-            <Lock className="w-4 h-4" />
-            <span>แผงควบคุมผู้ดูแล (Admin)</span>
-          </button>
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
+                  activeTab === 'admin'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Lock className="w-4 h-4" />
+                <span>แผงควบคุมผู้ดูแล (Admin)</span>
+              </button>
+            </>
+          )}
         </div>
+
 
         {/* Tab Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-700">

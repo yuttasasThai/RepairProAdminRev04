@@ -35,7 +35,8 @@ import {
   switchToAdminMode, 
   switchToBranch,
   getStoredBranches,
-  BranchLinkItem
+  BranchLinkItem,
+  isBranchUser
 } from '../utils/license';
 
 interface LoginModalProps {
@@ -315,44 +316,57 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   เลือกบทบาทเข้าใช้งาน:
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { setRoleChoice('admin'); setErrorMessage(null); }}
-                    className={`p-3 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                      roleChoice === 'admin'
-                        ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-xs ring-2 ring-blue-200'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">
-                      👑
-                    </div>
-                    <div>
-                      <strong className="block text-xs sm:text-sm">แอดมินหลัก (Admin)</strong>
-                      <span className="text-[10px] text-slate-500">จัดการข้อมูลร้านและสร้างลิงก์</span>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => { setRoleChoice('branch'); setErrorMessage(null); }}
-                    className={`p-3 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
-                      roleChoice === 'branch'
-                        ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs ring-2 ring-emerald-200'
-                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
+                {isBranchUser() ? (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-950 flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
                       🏢
                     </div>
                     <div>
-                      <strong className="block text-xs sm:text-sm">ลิงก์สาขา (Branch)</strong>
-                      <span className="text-[10px] text-slate-500">เปิดงานและจัดการสาขาแยก</span>
+                      <strong className="block text-xs sm:text-sm">โหมดบัญชีสาขา (Branch Mode)</strong>
+                      <span className="text-[10px] text-emerald-700">เข้าใช้งานและจดจำการตั้งค่าของสาขา {getActiveTenantId()}</span>
                     </div>
-                  </button>
-                </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setRoleChoice('admin'); setErrorMessage(null); }}
+                      className={`p-3 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
+                        roleChoice === 'admin'
+                          ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-xs ring-2 ring-blue-200'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold shrink-0">
+                        👑
+                      </div>
+                      <div>
+                        <strong className="block text-xs sm:text-sm">แอดมินหลัก (Admin)</strong>
+                        <span className="text-[10px] text-slate-500">จัดการข้อมูลร้านและสร้างลิงก์</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => { setRoleChoice('branch'); setErrorMessage(null); }}
+                      className={`p-3 rounded-xl border text-left transition flex items-center gap-2.5 cursor-pointer ${
+                        roleChoice === 'branch'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs ring-2 ring-emerald-200'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold shrink-0">
+                        🏢
+                      </div>
+                      <div>
+                        <strong className="block text-xs sm:text-sm">ลิงก์สาขา (Branch)</strong>
+                        <span className="text-[10px] text-slate-500">เปิดงานและจัดการสาขาแยก</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
               </div>
+
 
               {/* Form Admin */}
               {roleChoice === 'admin' ? (

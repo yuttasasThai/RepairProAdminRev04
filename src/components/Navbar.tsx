@@ -19,7 +19,8 @@ import {
   RefreshCw,
   Smartphone,
   Clock,
-  Key
+  Key,
+  Building2
 } from 'lucide-react';
 import { RepairJob, ShopSettings } from '../types/repair';
 import { LicenseConfig, LicenseStatus } from '../types/license';
@@ -29,7 +30,7 @@ import { downloadProjectZip } from '../utils/exportProjectZip';
 import { PWAInstallButton } from './PWAInstallButton';
 import { LicenseStatusBadge } from './LicenseStatusBadge';
 
-export type ActiveTab = 'dashboard' | 'jobs' | 'completed_jobs' | 'revenue' | 'warranty' | 'settings' | 'tracking';
+export type ActiveTab = 'dashboard' | 'jobs' | 'completed_jobs' | 'revenue' | 'warranty' | 'settings' | 'tracking' | 'branch_links';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -228,7 +229,24 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </span>
               )}
             </button>
+
+            {/* ประวัติลิงก์สาขา (เฉพาะแอดมิน) */}
+            {!isBranch && (
+              <button
+                onClick={() => setActiveTab('branch_links')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'branch_links'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+                title="ตารางบันทึกประวัติลิงก์สาขา วันหมดอายุ และการต่ออายุ"
+              >
+                <Building2 className="w-3.5 h-3.5 text-indigo-400" />
+                <span>ลิงก์สาขา</span>
+              </button>
+            )}
           </nav>
+
 
           {/* Action Buttons: New Job & Settings */}
           <div className="flex items-center space-x-2">
@@ -356,12 +374,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             ประกัน ({expiringCount})
           </button>
+          {!isBranch && (
+            <button
+              onClick={() => setActiveTab('branch_links')}
+              className={`px-2.5 py-1 rounded font-medium whitespace-nowrap ${
+                activeTab === 'branch_links' ? 'bg-blue-600 text-white' : 'text-slate-300'
+              }`}
+            >
+              ลิงก์สาขา
+            </button>
+          )}
           <button
             onClick={onOpenSettings}
             className="px-2.5 py-1 rounded font-medium whitespace-nowrap text-slate-300 hover:text-white"
           >
             ตั้งค่า
           </button>
+
           {/* เมนูอายุการใช้งานและนับถอยหลัง */}
           {onOpenLicenseManager && licenseStatus && (
             <button
