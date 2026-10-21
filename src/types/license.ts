@@ -23,3 +23,28 @@ export interface LicenseStatus {
   isLifetime: boolean;
   planName: string;
 }
+
+export interface BranchRenewalEvent {
+  renewedAt: string;
+  daysAdded: number | 'lifetime';
+  previousExpiresAt: string | null;
+  newExpiresAt: string | null;
+  note?: string;
+}
+
+export interface BranchLinkItem {
+  id: string;
+  tenantCode: string;          // รหัส tenant เช่น 'branch-01'
+  username: string;            // ชื่อผู้ใช้สำหรับล็อกอิน เช่น 'branch-01'
+  name: string;                // ชื่อร้าน / สาขา เช่น 'สาขาขอนแก่น'
+  branchPin: string;           // รหัสผ่าน PIN สาขา เช่น '1234'
+  phone?: string;              // เบอร์โทรสาขา
+  notes?: string;              // บันทึกเพิ่มเติม
+  daysGranted: number | 'lifetime';
+  createdAt: string;
+  expiresAt: string | null;    // วันที่หมดอายุ (ISO string, null สำหรับตลอดชีพ)
+  url: string;                 // URL ลิงก์สาขา
+  lastLoginAt?: string;        // เวลาเข้าสู่ระบบล่าสุด
+  renewals?: BranchRenewalEvent[]; // ประวัติการต่ออายุ
+}
+
