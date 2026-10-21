@@ -22,9 +22,13 @@ import { MobileGuideModal } from './components/MobileGuideModal';
 import { LicenseManagerModal } from './components/LicenseManagerModal';
 import { SubscriptionExpiredModal } from './components/SubscriptionExpiredModal';
 import { LoginModal } from './components/LoginModal';
+import { BranchLinksHistoryView } from './components/BranchLinksHistoryView';
+import { BranchLicenseStatusModal } from './components/BranchLicenseStatusModal';
+import { BranchLoginGate } from './components/BranchLoginGate';
 import { RepairJob, RepairStatus, ShopSettings } from './types/repair';
 import { LicenseConfig } from './types/license';
-import { getStoredLicense, calculateLicenseStatus } from './utils/license';
+import { getStoredLicense, calculateLicenseStatus, isBranchUser, getActiveTenantId } from './utils/license';
+import { isBranchLoggedIn } from './utils/auth';
 import { 
   getStoredJobs, 
   getStoredSettings, 
@@ -46,10 +50,17 @@ export default function App() {
 
   const licenseStatus = calculateLicenseStatus(licenseConfig);
 
+  const isBranch = isBranchUser();
+  const activeTenant = getActiveTenantId();
+  const [isBranchAuthenticated, setIsBranchAuthenticated] = useState<boolean>(() => {
+    return isBranch ? isBranchLoggedIn(activeTenant) : true;
+  });
+
   // Modals state
   const [isNewJobOpen, setIsNewJobOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLicenseManagerOpen, setIsLicenseManagerOpen] = useState(false);
+  const [isBranchStatusOpen, setIsBranchStatusOpen] = useState(false);
   const [isExpiredModalOpen, setIsExpiredModalOpen] = useState(false);
   const [detailJob, setDetailJob] = useState<RepairJob | null>(null);
   const [statusUpdateJob, setStatusUpdateJob] = useState<RepairJob | null>(null);
@@ -185,9 +196,29 @@ export default function App() {
     setActiveTab('jobs');
   };
 
+  if (isBranch && !isBranchAuthenticated) {
+    return (
+      <BranchLoginGate
+        tenantId={activeTenant}
+        licenseConfig={licenseConfig}
+        licenseStatus={licenseStatus}
+        onLoginSuccess={() => {
+          setIsBranchAuthenticated(true);
+          setJobs(getStoredJobs());
+          setShopSettings(getStoredSettings());
+          setLicenseConfig(getStoredLicense());
+        }}
+        onDataImported={() => {
+          setJobs(getStoredJobs());
+          setShopSettings(getStoredSettings());
+          setLicenseConfig(getStoredLicense());
+        }}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-['Prompt',sans-serif]">
-      {/* Navigation Bar */}
       {/* Navigation Bar */}
       <Navbar
         activeTab={activeTab}
@@ -197,13 +228,14 @@ export default function App() {
         onResetData={handleResetData}
         onOpenSourceCode={() => setIsSourceCodeOpen(true)}
         onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
-        onOpenLicenseManager={() => setIsLicenseManagerOpen(true)}
+        onOpenLicenseManager={() => isBranch ? setIsBranchStatusOpen(true) : setIsLicenseManagerOpen(true)}
         onOpenLogin={() => setIsLoginOpen(true)}
         licenseConfig={licenseConfig}
         licenseStatus={licenseStatus}
         jobs={jobs}
         shopSettings={shopSettings}
       />
+
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4">
@@ -261,6 +293,10 @@ export default function App() {
             shopSettings={shopSettings}
             onOpenJobDetail={(j) => setDetailJob(j)}
           />
+        )}
+
+        {activeTab === 'branch_links' && !isBranch && (
+          <BranchLinksHistoryView />
         )}
       </main>
 
@@ -341,13 +377,25 @@ export default function App() {
         onClose={() => setIsMobileGuideOpen(false)}
       />
 
-      <LicenseManagerModal
-        isOpen={isLicenseManagerOpen}
-        onClose={() => setIsLicenseManagerOpen(false)}
+      {/* Branch License Status Modal (เฉพาะสำหรับสาขา - ไม่ให้เข้าถึงหน้าแอดมิน แต่แสดงแค่วันหมดอายุและการต่ออายุ) */}
+      <BranchLicenseStatusModal
+        isOpen={isBranchStatusOpen}
+        onClose={() => setIsBranchStatusOpen(false)}
         licenseConfig={licenseConfig}
         licenseStatus={licenseStatus}
         onLicenseUpdated={(newConfig) => setLicenseConfig(newConfig)}
       />
+
+      {/* Admin License Manager Modal (เฉพาะแอดมินหลัก) */}
+      {!isBranch && (
+        <LicenseManagerModal
+          isOpen={isLicenseManagerOpen}
+          onClose={() => setIsLicenseManagerOpen(false)}
+          licenseConfig={licenseConfig}
+          licenseStatus={licenseStatus}
+          onLicenseUpdated={(newConfig) => setLicenseConfig(newConfig)}
+        />
+      )}
 
       <SubscriptionExpiredModal
         isOpen={isExpiredModalOpen}
@@ -355,8 +403,9 @@ export default function App() {
         licenseConfig={licenseConfig}
         licenseStatus={licenseStatus}
         onLicenseUpdated={(newConfig) => setLicenseConfig(newConfig)}
-        onOpenAdminManager={() => setIsLicenseManagerOpen(true)}
+        onOpenAdminManager={() => isBranch ? setIsBranchStatusOpen(true) : setIsLicenseManagerOpen(true)}
       />
+
 
       <LoginModal
         isOpen={isLoginOpen}
