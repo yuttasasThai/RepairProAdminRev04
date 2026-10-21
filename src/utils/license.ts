@@ -1,4 +1,5 @@
-import { LicenseConfig, LicenseStatus, SubscriptionPlanType } from '../types/license';
+import { LicenseConfig, LicenseStatus, SubscriptionPlanType, BranchLinkItem, BranchRenewalEvent } from '../types/license';
+export type { BranchLinkItem, BranchRenewalEvent };
 
 export const DEFAULT_ADMIN_PIN = '1234';
 export const DEFAULT_CONTACT_NAME = 'ช่างหน่อยชุมแพ';
@@ -111,16 +112,47 @@ export function getDefaultLicenseConfig(): LicenseConfig {
     };
   }
 
-  // อ่านพารามิเตอร์วันใช้งานจาก URL หากมีการส่งต่อ เช่น ?tenant=branch-01&days=30 หรือ ?days=90
-  let grantedDays = 7;
-  let isLifetimeParam = false;
+  // ค้นหาว่ามีข้อมูลประวัติสาขานี้บันทึกไว้ในระบบหรือไม่
+  const registeredBranches = getStoredBranches();
+  const matchedBranch = registeredBranches.find(
+    b => b.tenantCode === tenantId || b.username === tenantId
+  );
+
+  // อ่านพารามิเตอร์วันใช้งานจาก URL หากมีการส่งต่อ เช่น ?tenant=branch-01&days=30 หรือ ?days=90 หรือ &exp=...
+  let grantedDays: number | 'lifetime' = 7;
+  let exactExpiresAt: string | null = null;
+  let customBranchName = matchedBranch ? matchedBranch.name : `สาขา: ${tenantId}`;
+  let branchPin = matchedBranch ? matchedBranch.branchPin : DEFAULT_ADMIN_PIN;
+
   try {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const daysQuery = params.get('days');
       const planQuery = params.get('plan');
+      const expQuery = params.get('exp');
+      const nameQuery = params.get('name');
+      const pinQuery = params.get('pin');
+
+      if (pinQuery && pinQuery.trim().length > 0) {
+        branchPin = pinQuery.trim();
+      }
+      if (nameQuery && nameQuery.trim().length > 0) {
+        customBranchName = nameQuery.trim();
+      }
+
+      if (expQuery) {
+        try {
+          const parsedDate = new Date(decodeURIComponent(expQuery));
+          if (!isNaN(parsedDate.getTime())) {
+            exactExpiresAt = parsedDate.toISOString();
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (planQuery === 'lifetime' || daysQuery === 'lifetime') {
-        isLifetimeParam = true;
+        grantedDays = 'lifetime';
       } else if (daysQuery) {
         const parsed = parseInt(daysQuery, 10);
         if (!isNaN(parsed) && parsed > 0) {
@@ -132,10 +164,26 @@ export function getDefaultLicenseConfig(): LicenseConfig {
     // fallback
   }
 
-  if (isLifetimeParam) {
+  // หากพบในทะเบียนประวัติสาขา ให้ใช้วันหมดอายุจากประวัติสาขา
+  if (matchedBranch) {
+    if (matchedBranch.expiresAt === null || matchedBranch.daysGranted === 'lifetime') {
+      grantedDays = 'lifetime';
+      exactExpiresAt = null;
+    } else {
+      exactExpiresAt = matchedBranch.expiresAt;
+    }
+    if (matchedBranch.name) {
+      customBranchName = matchedBranch.name;
+    }
+    if (matchedBranch.branchPin) {
+      branchPin = matchedBranch.branchPin;
+    }
+  }
+
+  if (grantedDays === 'lifetime' || (matchedBranch && matchedBranch.expiresAt === null)) {
     return {
       tenantId,
-      tenantName: `สาขา / บัญชี: ${tenantId}`,
+      tenantName: customBranchName,
       planType: 'lifetime',
       planName: 'แพ็กเกจตลอดชีพ',
       activatedAt: now.toISOString(),
@@ -143,24 +191,30 @@ export function getDefaultLicenseConfig(): LicenseConfig {
       contactName: DEFAULT_CONTACT_NAME,
       contactPhone: DEFAULT_CONTACT_PHONE,
       contactLineId: DEFAULT_CONTACT_LINE,
-      adminPin: DEFAULT_ADMIN_PIN,
+      adminPin: branchPin,
     };
   }
 
-  // ลิงค์สาขาแยกอิสระ กำหนดวันหมดอายุตามที่สร้างไว้ (เช่น 1, 7, 30, 90, 180, 360 วัน หรือตามที่กำหนด)
-  const expires = new Date(now.getTime() + grantedDays * 24 * 60 * 60 * 1000);
+  // ลิงค์สาขาแยกอิสระ กำหนดวันหมดอายุตามที่สร้างไว้
+  let finalExpiresIso = exactExpiresAt;
+  if (!finalExpiresIso) {
+    const numDays = typeof grantedDays === 'number' ? grantedDays : 7;
+    const expires = new Date(now.getTime() + numDays * 24 * 60 * 60 * 1000);
+    finalExpiresIso = expires.toISOString();
+  }
 
+  const numDays = typeof grantedDays === 'number' ? grantedDays : 7;
   return {
     tenantId,
-    tenantName: `สาขา / บัญชี: ${tenantId}`,
-    planType: grantedDays <= 7 ? 'trial' : 'subscription',
-    planName: grantedDays <= 7 ? `ทดลองใช้งาน (${grantedDays} วัน)` : `แพ็กเกจใช้งาน (${grantedDays} วัน)`,
+    tenantName: customBranchName,
+    planType: numDays <= 7 ? 'trial' : 'subscription',
+    planName: numDays <= 7 ? `ทดลองใช้งาน (${numDays} วัน)` : `แพ็กเกจใช้งาน (${numDays} วัน)`,
     activatedAt: now.toISOString(),
-    expiresAt: expires.toISOString(),
+    expiresAt: finalExpiresIso,
     contactName: DEFAULT_CONTACT_NAME,
     contactPhone: DEFAULT_CONTACT_PHONE,
     contactLineId: DEFAULT_CONTACT_LINE,
-    adminPin: DEFAULT_ADMIN_PIN,
+    adminPin: branchPin,
   };
 }
 
@@ -429,47 +483,119 @@ export function applyRenewalCode(
   };
 }
 
-export interface BranchLinkItem {
-  id: string;
-  tenantCode: string;
-  name: string;
-  daysGranted: number | 'lifetime';
-  createdAt: string;
-  expiresAt: string | null;
-  url: string;
+/**
+ * แปลง ISO String เป็นวันที่และเวลาภาษาไทย (เช่น 28 ต.ค. 2569 16:30 น.)
+ */
+export function formatBranchDateThai(isoString?: string | null): string {
+  if (!isoString) return 'ตลอดชีพ (ไม่มีวันหมดอายุ)';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return '-';
+    const thaiMonths = [
+      'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+      'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'
+    ];
+    const day = d.getDate();
+    const month = thaiMonths[d.getMonth()];
+    const year = d.getFullYear() + 543;
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${day} ${month} ${year} ${hours}:${minutes} น.`;
+  } catch {
+    return '-';
+  }
 }
 
-export function buildBranchUrl(branchCode: string, days?: number | 'lifetime'): string {
+/**
+ * สร้าง URL ลิงก์สาขา พร้อมพารามิเตอร์ครบถ้วน
+ */
+export function buildBranchUrl(
+  branchCode: string, 
+  days?: number | 'lifetime',
+  options?: {
+    username?: string;
+    pin?: string;
+    expiresAt?: string | null;
+    shopName?: string;
+  }
+): string {
   try {
-    const origin = window.location.origin;
-    const pathname = window.location.pathname;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
     const cleanCode = branchCode.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
     if (!cleanCode || cleanCode === 'default') {
       return `${origin}${pathname}`;
     }
-    const daysParam = days ? (days === 'lifetime' ? '&plan=lifetime' : `&days=${days}`) : '';
-    return `${origin}${pathname}?tenant=${cleanCode}${daysParam}`;
+
+    const params = new URLSearchParams();
+    params.set('tenant', cleanCode);
+
+    if (options?.username && options.username.trim() !== cleanCode) {
+      params.set('user', options.username.trim());
+    }
+    if (options?.shopName && options.shopName.trim()) {
+      params.set('name', options.shopName.trim());
+    }
+    if (options?.pin && options.pin.trim() && options.pin.trim() !== '1234') {
+      params.set('pin', options.pin.trim());
+    }
+
+    if (days === 'lifetime') {
+      params.set('plan', 'lifetime');
+    } else if (typeof days === 'number' && days > 0) {
+      params.set('days', String(days));
+    }
+
+    if (options?.expiresAt) {
+      params.set('exp', options.expiresAt);
+    }
+
+    return `${origin}${pathname}?${params.toString()}`;
   } catch {
     const daysParam = days ? (days === 'lifetime' ? '&plan=lifetime' : `&days=${days}`) : '';
     return `?tenant=${branchCode}${daysParam}`;
   }
 }
 
+/**
+ * ดึงรายการประวัติลิงก์สาขาทั้งหมดที่บันทึกไว้ในระบบ
+ */
 export function getStoredBranches(): BranchLinkItem[] {
   try {
     const raw = localStorage.getItem('repair_pro_created_branches_v2');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    
+    // Normalize properties
+    return parsed.map((item: any) => ({
+      id: item.id || `br_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      tenantCode: item.tenantCode || 'branch-01',
+      username: item.username || item.tenantCode || 'branch-01',
+      name: item.name || `สาขา ${item.tenantCode || 'branch-01'}`,
+      branchPin: item.branchPin || '1234',
+      phone: item.phone || '',
+      notes: item.notes || '',
+      daysGranted: item.daysGranted || 7,
+      createdAt: item.createdAt || new Date().toISOString(),
+      expiresAt: item.expiresAt !== undefined ? item.expiresAt : null,
+      url: item.url || buildBranchUrl(item.tenantCode || 'branch-01', item.daysGranted),
+      lastLoginAt: item.lastLoginAt,
+      renewals: Array.isArray(item.renewals) ? item.renewals : [],
+    }));
   } catch {
     return [];
   }
 }
 
+/**
+ * บันทึกหรือสร้างลิงก์สาขาใหม่ลงในประวัติ
+ */
 export function saveBranchLinkItem(item: BranchLinkItem): BranchLinkItem[] {
   try {
-    const existing = getStoredBranches().filter(b => b.tenantCode !== item.tenantCode);
-    const updated = [item, ...existing];
+    const current = getStoredBranches();
+    const filtered = current.filter(b => b.tenantCode !== item.tenantCode && b.id !== item.id);
+    const updated = [item, ...filtered];
     localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(updated));
     return updated;
   } catch {
@@ -477,13 +603,137 @@ export function saveBranchLinkItem(item: BranchLinkItem): BranchLinkItem[] {
   }
 }
 
-export function deleteStoredBranch(tenantCode: string): BranchLinkItem[] {
+/**
+ * อัปเดตข้อมูลของลิงก์สาขาเดิม
+ */
+export function updateStoredBranch(updatedItem: BranchLinkItem): BranchLinkItem[] {
   try {
-    const updated = getStoredBranches().filter(b => b.tenantCode !== tenantCode);
+    const current = getStoredBranches();
+    const updated = current.map(b => b.id === updatedItem.id || b.tenantCode === updatedItem.tenantCode ? updatedItem : b);
     localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(updated));
     return updated;
   } catch {
     return [];
   }
 }
+
+/**
+ * ลบรายการประวัติลิงก์สาขา
+ */
+export function deleteStoredBranch(tenantCodeOrId: string): BranchLinkItem[] {
+  try {
+    const current = getStoredBranches();
+    const updated = current.filter(b => b.tenantCode !== tenantCodeOrId && b.id !== tenantCodeOrId);
+    localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(updated));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * ต่ออายุให้ลิงก์สาขาในระบบทันที
+ */
+export function renewStoredBranch(
+  tenantCodeOrId: string,
+  daysToAdd: number | 'lifetime',
+  note?: string
+): { success: boolean; message: string; updatedBranch?: BranchLinkItem; updatedBranches: BranchLinkItem[] } {
+  try {
+    const list = getStoredBranches();
+    const index = list.findIndex(b => b.tenantCode === tenantCodeOrId || b.id === tenantCodeOrId);
+    if (index === -1) {
+      return { success: false, message: 'ไม่พบข้อมูลสาขานี้ในระบบ', updatedBranches: list };
+    }
+
+    const branch = { ...list[index] };
+    const prevExpires = branch.expiresAt;
+    let newExpiresAt: string | null = null;
+    let newDaysGranted: number | 'lifetime' = daysToAdd;
+
+    if (daysToAdd === 'lifetime') {
+      newExpiresAt = null;
+      newDaysGranted = 'lifetime';
+    } else {
+      const now = Date.now();
+      let baseTime = now;
+      if (branch.expiresAt) {
+        const curExp = new Date(branch.expiresAt).getTime();
+        if (curExp > now) {
+          baseTime = curExp; // ขยายต่อจากวันหมดอายุเดิม
+        }
+      }
+      newExpiresAt = new Date(baseTime + daysToAdd * 24 * 60 * 60 * 1000).toISOString();
+      newDaysGranted = typeof branch.daysGranted === 'number' ? branch.daysGranted + daysToAdd : daysToAdd;
+    }
+
+    const renewalEvent: BranchRenewalEvent = {
+      renewedAt: new Date().toISOString(),
+      daysAdded: daysToAdd,
+      previousExpiresAt: prevExpires,
+      newExpiresAt,
+      note: note || (daysToAdd === 'lifetime' ? 'ต่ออายุตลอดชีพ' : `ต่ออายุเพิ่ม ${daysToAdd} วัน`),
+    };
+
+    branch.expiresAt = newExpiresAt;
+    branch.daysGranted = newDaysGranted;
+    branch.renewals = [renewalEvent, ...(branch.renewals || [])];
+    branch.url = buildBranchUrl(branch.tenantCode, branch.daysGranted, {
+      username: branch.username,
+      pin: branch.branchPin,
+      expiresAt: newExpiresAt,
+      shopName: branch.name,
+    });
+
+    list[index] = branch;
+    localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(list));
+
+    // หากเบราว์เซอร์นี้เปิด tenant นี้อยู่ ให้อัปเดต license storage ด้วย
+    try {
+      const activeTenant = getActiveTenantId();
+      if (activeTenant === branch.tenantCode) {
+        const currentLic = getStoredLicense();
+        const updatedLic: LicenseConfig = {
+          ...currentLic,
+          expiresAt: newExpiresAt,
+          planType: daysToAdd === 'lifetime' ? 'lifetime' : (daysToAdd >= 360 ? 'annual' : 'subscription'),
+          planName: daysToAdd === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ (${daysToAdd} วัน)`,
+        };
+        saveStoredLicense(updatedLic);
+      }
+    } catch {
+      // ignore
+    }
+
+    return {
+      success: true,
+      message: daysToAdd === 'lifetime' ? 'ต่ออายุการใช้งานตลอดชีพเรียบร้อย' : `ต่ออายุเพิ่มอีก ${daysToAdd} วัน เรียบร้อย`,
+      updatedBranch: branch,
+      updatedBranches: list,
+    };
+  } catch (err) {
+    console.error('Error renewing branch:', err);
+    return { success: false, message: 'เกิดข้อผิดพลาดในการต่ออายุ', updatedBranches: getStoredBranches() };
+  }
+}
+
+/**
+ * สร้างข้อความสรุปสำหรับส่งให้สาขาทาง LINE หรือ SMS
+ */
+export function getBranchShareMessage(branch: BranchLinkItem): string {
+  const expiryStr = branch.expiresAt ? formatBranchDateThai(branch.expiresAt) : 'ตลอดชีพ (ไม่มีวันหมดอายุ)';
+  return `📢 ข้อมูลเข้าใช้งานระบบงานซ่อม RepairProShop
+━━━━━━━━━━━━━━━━━━━━
+🏪 สาขา: ${branch.name}
+👤 ชื่อผู้ใช้ (Username): ${branch.username || branch.tenantCode}
+🔑 รหัสผ่าน (PIN): ${branch.branchPin || '1234'}
+⏳ วันหมดอายุ: ${expiryStr}
+🔗 ลิงก์เข้าใช้งาน: ${branch.url}
+━━━━━━━━━━━━━━━━━━━━
+📌 คำแนะนำ:
+1. เปิดลิงก์ด้านบนในมือถือ แล้วใส่ชื่อผู้ใช้และรหัสผ่านเพื่อเข้าใช้งาน
+2. หากเปลี่ยนโทรศัพท์ สามารถใช้รหัสเดิมเข้าสู่ระบบได้ทันที
+3. ติดต่อแอดมิน: ช่างหน่อยชุมแพ โทร 099-225-6601 LINE: @228snzee`;
+}
+
 

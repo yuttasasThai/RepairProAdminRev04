@@ -15,7 +15,8 @@ import {
   getActiveTenantId, 
   DEFAULT_ADMIN_PIN, 
   getStoredLicense, 
-  saveStoredLicense
+  saveStoredLicense,
+  getStoredBranches
 } from './license';
 
 export interface AuthSession {
@@ -23,20 +24,42 @@ export interface AuthSession {
   tenantId: string;
   displayName: string;
   loggedInAt: string;
+  username?: string;
 }
 
 const AUTH_SESSION_KEY = 'repair_pro_auth_session';
 
 /**
+ * ตรวจสอบว่าสาขาปัจจุบันได้รับการล็อกอินบนเบราว์เซอร์/เครื่องนี้แล้วหรือไม่
+ */
+export function isBranchLoggedIn(tenantId?: string): boolean {
+  try {
+    const targetTenant = tenantId || getActiveTenantId();
+    if (targetTenant === 'default') return true; // แอดมินใช้การตรวจสอบตามปกติ
+    const isAuth = localStorage.getItem(`repair_pro_branch_auth_${targetTenant}`);
+    return isAuth === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * ดึงสถานะ Session ปัจจุบัน
  */
 export function getCurrentSession(): AuthSession {
+  const tenant = getActiveTenantId();
+
   try {
     const raw = localStorage.getItem(AUTH_SESSION_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && (parsed.role === 'admin' || parsed.role === 'branch')) {
-        return parsed;
+        // หากเปิดเป็น branch ให้เช็คว่า tenant ตรงกันหรือไม่
+        if (tenant !== 'default' && parsed.tenantId === tenant) {
+          return parsed;
+        } else if (tenant === 'default' && parsed.role === 'admin') {
+          return parsed;
+        }
       }
     }
   } catch (err) {
@@ -44,21 +67,27 @@ export function getCurrentSession(): AuthSession {
   }
 
   // ค่าเริ่มต้นตาม tenant ปัจจุบัน
-  const tenant = getActiveTenantId();
   if (tenant === 'default') {
     return {
       role: 'admin',
       tenantId: 'default',
       displayName: 'แอดมินหลัก (เจ้าของร้าน)',
       loggedInAt: new Date().toISOString(),
+      username: 'admin',
     };
   }
+
+  // สำหรับสาขา ถ้าล็อกอินแล้ว
+  const registeredBranches = getStoredBranches();
+  const matched = registeredBranches.find(b => b.tenantCode === tenant || b.username === tenant);
+  const displayName = matched ? matched.name : `สาขา (${tenant})`;
 
   return {
     role: 'branch',
     tenantId: tenant,
-    displayName: `สาขา (${tenant})`,
-    loggedInAt: new Date().toISOString(),
+    displayName,
+    loggedInAt: isBranchLoggedIn(tenant) ? new Date().toISOString() : '',
+    username: matched ? matched.username : tenant,
   };
 }
 
@@ -85,10 +114,106 @@ export function verifyAdminPin(pin: string): boolean {
 /**
  * ตรวจสอบรหัสผ่านสาขา
  */
-export function verifyBranchPin(pin: string): boolean {
+export function verifyBranchPin(pin: string, tenantId?: string): boolean {
+  const targetTenant = tenantId || getActiveTenantId();
+  const cleanPin = pin.trim();
+
+  // 1. ตรวจสอบจากรายชื่อสาขาที่แอดมินสร้างไว้
+  const branches = getStoredBranches();
+  const matched = branches.find(b => b.tenantCode === targetTenant || b.username === targetTenant);
+  if (matched && matched.branchPin) {
+    if (cleanPin === matched.branchPin.trim()) return true;
+  }
+
+  // 2. ตรวจสอบจาก query parameter pin ถ้ามี
+  try {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('pin');
+      if (p && cleanPin === p.trim()) return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  // 3. ตรวจสอบกับ Master Admin Pin หรือค่าเริ่มต้น 1234
   const license = getStoredLicense();
   const validPin = license.adminPin || DEFAULT_ADMIN_PIN;
-  return pin.trim() === validPin.trim() || pin.trim() === '1234';
+  return cleanPin === validPin.trim() || cleanPin === '1234';
+}
+
+/**
+ * ดำเนินการเข้าสู่ระบบสาขา (Branch Login)
+ */
+export function loginBranchUser(
+  tenantId: string, 
+  username: string, 
+  pin: string, 
+  rememberSettings: boolean = true
+): { success: boolean; message: string; session?: AuthSession } {
+  const cleanTenant = tenantId.trim().toLowerCase().replace(/[^a-z0-9_\u0E00-\u0E7F-]/g, '');
+  if (!cleanTenant) {
+    return { success: false, message: 'กรุณาระบุรหัสสาขา' };
+  }
+
+  const cleanUser = username.trim();
+  if (!cleanUser) {
+    return { success: false, message: 'กรุณาระบุชื่อผู้ใช้' };
+  }
+
+  if (!verifyBranchPin(pin, cleanTenant)) {
+    return { success: false, message: 'รหัสผ่าน (PIN) สาขาไม่ถูกต้อง' };
+  }
+
+  const branches = getStoredBranches();
+  const matched = branches.find(b => b.tenantCode === cleanTenant || b.username === cleanTenant);
+  const displayName = matched ? matched.name : `สาขา (${cleanTenant})`;
+
+  // บันทึกสถานะล็อกอินลงใน localStorage ของอุปกรณ์นี้
+  localStorage.setItem(`repair_pro_branch_auth_${cleanTenant}`, 'true');
+
+  if (rememberSettings) {
+    localStorage.setItem(`repair_pro_last_branch_user_${cleanTenant}`, cleanUser);
+  }
+
+  const session: AuthSession = {
+    role: 'branch',
+    tenantId: cleanTenant,
+    displayName,
+    username: cleanUser,
+    loggedInAt: new Date().toISOString(),
+  };
+
+  saveAuthSession(session);
+
+  // อัปเดตเวลาเข้าใช้งานล่าสุดในประวัติสาขาถ้าพบ
+  try {
+    if (matched) {
+      matched.lastLoginAt = new Date().toISOString();
+      const updated = branches.map(b => b.id === matched.id ? matched : b);
+      localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(updated));
+    }
+  } catch {
+    // ignore
+  }
+
+  return {
+    success: true,
+    message: `เข้าสู่ระบบ ${displayName} สำเร็จ`,
+    session,
+  };
+}
+
+/**
+ * ออกจากระบบสาขา
+ */
+export function logoutBranch(tenantId?: string): void {
+  const targetTenant = tenantId || getActiveTenantId();
+  try {
+    localStorage.removeItem(`repair_pro_branch_auth_${targetTenant}`);
+    localStorage.removeItem(AUTH_SESSION_KEY);
+  } catch (err) {
+    console.error('Error logging out branch:', err);
+  }
 }
 
 /**
@@ -96,6 +221,10 @@ export function verifyBranchPin(pin: string): boolean {
  */
 export function logoutSession(): void {
   try {
+    const tenant = getActiveTenantId();
+    if (tenant !== 'default') {
+      localStorage.removeItem(`repair_pro_branch_auth_${tenant}`);
+    }
     localStorage.removeItem(AUTH_SESSION_KEY);
   } catch (err) {
     console.error('Error logging out:', err);
