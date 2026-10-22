@@ -67,16 +67,16 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold">RepairPro Source Code Rev.05</h2>
+                <h2 className="text-lg sm:text-xl font-bold">RepairPro Source Code Rev.06</h2>
                 <span className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full font-mono font-bold">
-                  Rev.05 (Branch Creation & Renewal Flow & Security)
+                  Rev.06 (Renewal Masking Security & Admin +/- Days Adjustment)
                 </span>
                 <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-full font-mono">
                   {fileKeys.length} ไฟล์
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                ซอร์สโค้ดฉบับสมบูรณ์ ปรับระบบสร้างลิงก์สาขาไปไว้ที่หน้าต่ออายุ, จัดการรหัสกู้คืนเริ่มต้น, ซ่อนปุ่มกุญแจ, ปิดแสดงรหัสผ่าน และรหัสแอดมิน RepairPro0992256601 (Rev.05)
+                ซอร์สโค้ดฉบับสมบูรณ์ ปิดบังรหัสต่ออายุในช่องพิมพ์ (Masked PIN), บล็อกรหัสต่ออายุสาธารณะที่สาขา (ใช้รหัสแอดมินเท่านั้น), และเพิ่มระบบเพิ่มอายุ (+) และลดอายุ (-) ในหน้าแอดมิน (Rev.06)
               </p>
             </div>
           </div>
@@ -96,7 +96,7 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ isOpen, onClos
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
-              <strong>สรุปการแก้ไข Rev.05:</strong> 1) ย้ายฟอร์มสร้างลิงก์สาขามาไว้ที่หน้าต่ออายุใช้งาน พร้อมกำหนดรหัสผ่าน PIN 2) หน้าลิงก์สาขาเก็บประวัติและรหัสเริ่มต้นกู้คืน 3) หน้าต่ออายุให้แอดมินใส่ลิงก์สาขาและกำหนดรหัสต่ออายุส่งให้ user 4) ซ่อนปุ่มกุญแจในลิงก์สาขา 5) ซ่อนการแสดงรหัสผ่านในช่องพิมพ์ และตั้งรหัสแอดมิน RepairPro0992256601
+              <strong>สรุปการแก้ไข Rev.06:</strong> 1) ซ่อน/ปิดบังตัวหนังสือเวลาพิมพ์ในช่องกรอกรหัสต่ออายุของสาขาและแอดมิน 2) ตัดข้อความตัวอย่าง RENEW-30 ออก และบล็อกไม่ให้สาขาต่ออายุเองได้ (ต้องใช้รหัสเฉพาะที่แอดมินออกให้เท่านั้น) 3) แอดมินสามารถปรับทั้ง <strong>เพิ่มอายุ (+)</strong> และ <strong>ลดอายุ (-)</strong> ได้ทันที 4) Dashboard สรุปรายรับเทียบต้นทุน & สถานะงานซ่อม
             </span>
           </div>
           <button
@@ -111,17 +111,17 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ isOpen, onClos
             {isDownloading ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>กำลังสร้าง repair-pro-source-code-rev.04.zip...</span>
+                <span>กำลังสร้าง repair-pro-source-code-rev.06.zip...</span>
               </>
             ) : downloadSuccess ? (
               <>
                 <Check className="w-3.5 h-3.5" />
-                <span>ดาวน์โหลด Rev.04 สำเร็จแล้ว!</span>
+                <span>ดาวน์โหลด Rev.06 สำเร็จแล้ว!</span>
               </>
             ) : (
               <>
                 <Download className="w-3.5 h-3.5" />
-                <span>ดาวน์โหลด Source Code Rev.04 (.ZIP)</span>
+                <span>ดาวน์โหลด Source Code Rev.06 (.ZIP)</span>
               </>
             )}
           </button>

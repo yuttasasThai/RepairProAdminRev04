@@ -19,6 +19,7 @@ import {
   MessageCircle, 
   Crown, 
   Layers,
+  Eye,
   EyeOff,
   Plus,
   Building2,
@@ -71,6 +72,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
 
   // Status Tab - Renewal code input
   const [renewalCode, setRenewalCode] = useState('');
+  const [showStatusRenewalCode, setShowStatusRenewalCode] = useState(false);
   const [renewalMsg, setRenewalMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Tab 2: Create Branch Form State
@@ -84,10 +86,11 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
   const [createdBranchItem, setCreatedBranchItem] = useState<BranchLinkItem | null>(null);
   const [createSuccessMsg, setCreateSuccessMsg] = useState<string | null>(null);
 
-  // Tab 3: Renew Branch State (2.1 & 2.2)
+  // Tab 3: Renew Branch State (2.1 & 2.2) (Support both + increase and - reduce)
   const [storedBranches, setStoredBranches] = useState<BranchLinkItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [branchSearchInput, setBranchSearchInput] = useState<string>('');
+  const [renewMode, setRenewMode] = useState<'add' | 'reduce'>('add');
   const [renewDurationChoice, setRenewDurationChoice] = useState<number | 'lifetime' | 'custom'>(30);
   const [renewCustomDays, setRenewCustomDays] = useState('30');
   const [customRenewalCode, setCustomRenewalCode] = useState('');
@@ -251,11 +254,17 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
     ? (parseInt(renewCustomDays, 10) > 0 ? parseInt(renewCustomDays, 10) : 30)
     : renewDurationChoice;
 
+  const finalDaysDelta: number | 'lifetime' = effectiveRenewDays === 'lifetime'
+    ? 'lifetime'
+    : (renewMode === 'reduce' ? -Math.abs(effectiveRenewDays) : Math.abs(effectiveRenewDays));
+
   // Generate Renewal Code
   const handleGenerateBranchCode = () => {
     if (!resolvedBranch) return;
     const prefix = resolvedBranch.tenantCode.toUpperCase().slice(0, 8);
-    const dayTag = effectiveRenewDays === 'lifetime' ? 'LIFE' : `${effectiveRenewDays}D`;
+    const dayTag = effectiveRenewDays === 'lifetime' 
+      ? 'LIFE' 
+      : (renewMode === 'reduce' ? `MINUS${effectiveRenewDays}D` : `${effectiveRenewDays}D`);
     const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
     const newCode = `RP-${prefix}-${dayTag}-${rand}`;
     setCustomRenewalCode(newCode);
@@ -263,22 +272,30 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
     // Register into system
     registerRenewalCode({
       code: newCode,
-      daysAdded: effectiveRenewDays,
-      planName: effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ ${effectiveRenewDays} วัน`,
+      daysAdded: finalDaysDelta,
+      planName: effectiveRenewDays === 'lifetime' 
+        ? 'ตลอดชีพ' 
+        : (renewMode === 'reduce' ? `ลดเวลา ${effectiveRenewDays} วัน` : `ต่ออายุ +${effectiveRenewDays} วัน`),
       targetTenantId: resolvedBranch.tenantCode,
       note: `สร้างรหัสต่ออายุให้สาขา ${resolvedBranch.name}`,
     });
   };
 
-  // Instant Renew Branch (Directly extend in DB)
+  // Instant Renew / Adjust Branch (Directly update in DB)
   const handleInstantRenewBranch = () => {
     if (!resolvedBranch) return;
-    const res = renewStoredBranch(resolvedBranch.id, effectiveRenewDays, `แอดมินต่ออายุตรงผ่านหน้าต่างจัดการ`);
+    const res = renewStoredBranch(
+      resolvedBranch.id, 
+      finalDaysDelta, 
+      renewMode === 'reduce' 
+        ? `แอดมินปรับลดเวลาการใช้งาน ${Math.abs(effectiveRenewDays as number)} วัน`
+        : `แอดมินต่ออายุตรงผ่านหน้าต่างจัดการ (+${effectiveRenewDays} วัน)`
+    );
     if (res.success) {
       setStoredBranches(res.updatedBranches);
       setRenewResultMsg({ 
         type: 'success', 
-        text: `ต่ออายุให้ "${resolvedBranch.name}" เรียบร้อยแล้ว (${effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `+${effectiveRenewDays} วัน`})` 
+        text: res.message
       });
       setTimeout(() => setRenewResultMsg(null), 4000);
     } else {
@@ -507,13 +524,24 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
 
                 <form onSubmit={handleApplyRenewal} className="space-y-3">
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      type="text"
-                      value={renewalCode}
-                      onChange={(e) => setRenewalCode(e.target.value.toUpperCase())}
-                      placeholder="กรอกรหัสต่ออายุ เช่น RENEW-30 หรือ RP-..."
-                      className="flex-1 px-3.5 py-2.5 text-sm font-mono uppercase bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none tracking-wider"
-                    />
+                    <div className="relative flex-1">
+                      <input
+                        type={showStatusRenewalCode ? "text" : "password"}
+                        value={renewalCode}
+                        onChange={(e) => setRenewalCode(e.target.value.toUpperCase())}
+                        placeholder="กรอกรหัสต่ออายุที่ได้รับจากแอดมิน"
+                        autoComplete="off"
+                        className="w-full pl-3.5 pr-10 py-2.5 text-sm font-mono bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none tracking-wider"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowStatusRenewalCode(!showStatusRenewalCode)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                        title={showStatusRenewalCode ? "ซ่อนรหัส" : "แสดงรหัส"}
+                      >
+                        {showStatusRenewalCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                     <button
                       type="submit"
                       className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-sm transition whitespace-nowrap cursor-pointer flex items-center justify-center space-x-1.5 active:scale-95"
@@ -887,27 +915,76 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                 )}
               </div>
 
-              {/* 2.2 Configure renewal code & duration for user */}
+              {/* 2.2 Configure renewal code & duration for user (Add + or Reduce -) */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                  <Key className="w-4 h-4 text-blue-600" />
-                  <span>2.2 กำหนดรหัสต่ออายุ เพื่อส่งให้ user ไปกรอก</span>
-                </h4>
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Key className="w-4 h-4 text-blue-600" />
+                    <span>2.2 กำหนดระยะเวลา & รหัสต่ออายุ เพื่อส่งให้ user หรือปรับตรง</span>
+                  </h4>
+                </div>
+
+                {/* Mode Selector Toggle: Add vs Reduce */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    เลือกรูปแบบการปรับปรุงอายุการใช้งาน:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenewMode('add');
+                        setRenewDurationChoice(30);
+                      }}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        renewMode === 'add'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <span>➕ เพิ่มอายุการใช้งาน (+)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenewMode('reduce');
+                        setRenewDurationChoice(15);
+                      }}
+                      className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                        renewMode === 'reduce'
+                          ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      <span>➖ ลดอายุการใช้งาน (-)</span>
+                    </button>
+                  </div>
+                </div>
 
                 {/* Duration presets */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    เลือกระยะเวลาที่ต้องการต่ออายุ:
+                    {renewMode === 'add' ? 'เลือกระยะเวลาที่ต้องการเพิ่ม (+):' : 'เลือกระยะเวลาที่ต้องการลด (-):'}
                   </label>
                   <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
-                    {[
-                      { label: '+30 วัน', value: 30 },
-                      { label: '+90 วัน (3 ด.)', value: 90 },
-                      { label: '+180 วัน (6 ด.)', value: 180 },
-                      { label: '+360 วัน (1 ปี)', value: 360 },
-                      { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
-                      { label: 'กำหนดเอง', value: 'custom' as const },
-                    ].map((preset) => {
+                    {(renewMode === 'add'
+                      ? [
+                          { label: '+30 วัน', value: 30 },
+                          { label: '+90 วัน (3 ด.)', value: 90 },
+                          { label: '+180 วัน (6 ด.)', value: 180 },
+                          { label: '+360 วัน (1 ปี)', value: 360 },
+                          { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
+                          { label: 'กำหนดเอง', value: 'custom' as const },
+                        ]
+                      : [
+                          { label: '-7 วัน', value: 7 },
+                          { label: '-15 วัน', value: 15 },
+                          { label: '-30 วัน (1 ด.)', value: 30 },
+                          { label: '-60 วัน (2 ด.)', value: 60 },
+                          { label: '-90 วัน (3 ด.)', value: 90 },
+                          { label: 'กำหนดเอง', value: 'custom' as const },
+                        ]
+                    ).map((preset) => {
                       const isSelected = renewDurationChoice === preset.value;
                       return (
                         <button
@@ -916,7 +993,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                           onClick={() => setRenewDurationChoice(preset.value)}
                           className={`px-2 py-2 rounded-xl text-xs font-bold transition border cursor-pointer text-center ${
                             isSelected
-                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              ? (renewMode === 'add' ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' : 'bg-rose-600 text-white border-rose-600 shadow-xs')
                               : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
                           }`}
                         >
@@ -942,11 +1019,43 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                   )}
                 </div>
 
-                {/* Renewal code field */}
-                <div>
+                {/* Instant Renew / Adjust Action Button */}
+                <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                  renewMode === 'add' ? 'bg-emerald-50/70 border-emerald-200' : 'bg-rose-50/70 border-rose-200'
+                }`}>
+                  <div className="text-xs">
+                    <span className={`font-bold block ${renewMode === 'add' ? 'text-emerald-950' : 'text-rose-950'}`}>
+                      {renewMode === 'add' ? '⚡ ปรับเพิ่มอายุให้สาขานี้โดยตรงทันที:' : '🔻 ปรับลดอายุสาขานี้โดยตรงทันที:'}
+                    </span>
+                    <span className="text-[11px] text-slate-600 block mt-0.5">
+                      {renewMode === 'add' 
+                        ? 'กดปุ่มนี้เพื่อขยายวันใช้งานให้สาขานี้ทันทีในระบบ ไม่ต้องให้ user ไปกรอกรหัสเอง'
+                        : 'กดปุ่มนี้เพื่อตัดลดจำนวนวันใช้งานของสาขานี้ทันทีในระบบ'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleInstantRenewBranch}
+                    className={`px-4 py-2.5 text-white rounded-xl text-xs font-bold transition cursor-pointer shrink-0 active:scale-95 shadow-xs flex items-center gap-1.5 ${
+                      renewMode === 'add' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'
+                    }`}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>
+                      {effectiveRenewDays === 'lifetime' 
+                        ? 'ปรับเป็นตลอดชีพทันที'
+                        : (renewMode === 'add' 
+                            ? `เพิ่มอายุทันที (+${effectiveRenewDays} วัน)` 
+                            : `ลดอายุทันที (-${effectiveRenewDays} วัน)`)}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Renewal code field for user */}
+                <div className="pt-2 border-t border-slate-200/80">
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-semibold text-slate-700">
-                      รหัสต่ออายุ (Activation Code ที่จะส่งให้ user):
+                      หรือสร้างรหัสต่ออายุ (Activation Code เพื่อส่งให้ user นำไปกรอกเอง):
                     </label>
                     <button
                       type="button"
@@ -974,8 +1083,8 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                         } else if (resolvedBranch) {
                           registerRenewalCode({
                             code: customRenewalCode.trim().toUpperCase(),
-                            daysAdded: effectiveRenewDays,
-                            planName: effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ ${effectiveRenewDays} วัน`,
+                            daysAdded: finalDaysDelta,
+                            planName: effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `${renewMode === 'reduce' ? 'ลด' : 'ต่ออายุ'} ${effectiveRenewDays} วัน`,
                             targetTenantId: resolvedBranch.tenantCode,
                           });
                           handleCopy(customRenewalCode.trim().toUpperCase(), setCopiedRenewalCode);
@@ -987,23 +1096,6 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                       <span>{copiedRenewalCode ? 'คัดลอกแล้ว' : 'บันทึก & คัดลอกรหัส'}</span>
                     </button>
                   </div>
-                </div>
-
-                {/* Instant Renew Action Button */}
-                <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="text-xs text-indigo-900">
-                    <span className="font-bold">⚡ หรือต่ออายุให้สาขานี้โดยตรงทันที:</span>
-                    <span className="text-[11px] text-slate-500 block">
-                      แอดมินสามารถกดปุ่มนี้เพื่อขยายวันใช้งานให้สาขานี้ทันทีในฐานข้อมูล ไม่ต้องให้ user กรอกรหัสเอง
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleInstantRenewBranch}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shrink-0 active:scale-95 shadow-xs"
-                  >
-                    ต่ออายุให้สาขานี้ทันที
-                  </button>
                 </div>
 
                 {renewResultMsg && (

@@ -69,6 +69,12 @@ export const BranchLinksHistoryView: React.FC = () => {
   // History Log Modal
   const [historyModalItem, setHistoryModalItem] = useState<BranchLinkItem | null>(null);
 
+  // Custom Days Adjust Modal (Increase + or Reduce -)
+  const [adjustDaysModalItem, setAdjustDaysModalItem] = useState<BranchLinkItem | null>(null);
+  const [adjustDaysInput, setAdjustDaysInput] = useState<string>('30');
+  const [adjustMode, setAdjustMode] = useState<'add' | 'reduce'>('add');
+  const [adjustNote, setAdjustNote] = useState<string>('');
+
   // Refresh branches on mount
   useEffect(() => {
     setBranches(getStoredBranches());
@@ -142,12 +148,39 @@ export const BranchLinksHistoryView: React.FC = () => {
 
 
 
-  // Handle Quick Renewal
+  // Handle Quick Renewal (supports positive and negative)
   const handleQuickRenew = (branch: BranchLinkItem, days: number | 'lifetime') => {
     const res = renewStoredBranch(branch.id, days);
     if (res.success) {
       setBranches(res.updatedBranches);
     }
+  };
+
+  // Handle Custom Days Adjustment (บวกเพิ่ม หรือ ลบลด)
+  const handleApplyCustomDays = () => {
+    if (!adjustDaysModalItem) return;
+    const num = parseInt(adjustDaysInput, 10);
+    if (isNaN(num) || num <= 0) return;
+    const daysDelta = adjustMode === 'reduce' ? -num : num;
+    const res = renewStoredBranch(
+      adjustDaysModalItem.id, 
+      daysDelta, 
+      adjustNote.trim() || undefined
+    );
+    if (res.success) {
+      setBranches(res.updatedBranches);
+      setAdjustDaysModalItem(null);
+      setAdjustDaysInput('30');
+      setAdjustNote('');
+    }
+  };
+
+  // Helper to shift expiration date in Edit modal
+  const handleShiftEditExpires = (daysDelta: number) => {
+    const base = editExpiresAt ? new Date(editExpiresAt).getTime() : Date.now();
+    const shifted = new Date(base + daysDelta * 24 * 60 * 60 * 1000);
+    setEditExpiresAt(shifted.toISOString().slice(0, 16));
+    setEditIsLifetime(false);
   };
 
   // Handle Delete
@@ -432,7 +465,7 @@ export const BranchLinksHistoryView: React.FC = () => {
                 <th className="py-3.5 px-4">ชื่อผู้ใช้ (Username) / PIN</th>
                 <th className="py-3.5 px-4">ลิงก์สาขา (URL) & การแชร์</th>
                 <th className="py-3.5 px-4">วันหมดอายุ & สถานะ</th>
-                <th className="py-3.5 px-4 text-center">ต่ออายุ (ด่วน)</th>
+                <th className="py-3.5 px-4 text-center">ปรับเวลาการใช้งาน (+เพิ่ม / -ลด)</th>
                 <th className="py-3.5 px-4 text-right">การจัดการ</th>
               </tr>
             </thead>
@@ -608,37 +641,83 @@ export const BranchLinksHistoryView: React.FC = () => {
                         </div>
                       </td>
 
-                      {/* 5. Quick Renewal Buttons */}
+                      {/* 5. Quick Renewal & Adjustment Buttons (+ / -) */}
                       <td className="py-3 px-4 text-center">
-                        <div className="inline-flex items-center gap-1 flex-wrap justify-center max-w-[200px]">
-                          <button
-                            onClick={() => handleQuickRenew(branch, 30)}
-                            className="px-2 py-1 rounded bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 font-bold text-[10px] border border-blue-200 transition cursor-pointer active:scale-95"
-                            title="ต่ออายุเพิ่ม 30 วัน (1 เดือน)"
-                          >
-                            +30 วัน
-                          </button>
-                          <button
-                            onClick={() => handleQuickRenew(branch, 90)}
-                            className="px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 font-bold text-[10px] border border-indigo-200 transition cursor-pointer active:scale-95"
-                            title="ต่ออายุเพิ่ม 90 วัน (3 เดือน)"
-                          >
-                            +90 วัน
-                          </button>
-                          <button
-                            onClick={() => handleQuickRenew(branch, 360)}
-                            className="px-2 py-1 rounded bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 font-bold text-[10px] border border-purple-200 transition cursor-pointer active:scale-95"
-                            title="ต่ออายุเพิ่ม 360 วัน (1 ปี)"
-                          >
-                            +1 ปี
-                          </button>
-                          <button
-                            onClick={() => handleQuickRenew(branch, 'lifetime')}
-                            className="px-2 py-1 rounded bg-yellow-50 hover:bg-yellow-500 hover:text-white text-yellow-800 font-bold text-[10px] border border-yellow-300 transition cursor-pointer active:scale-95"
-                            title="ปลดล็อคใช้งานตลอดชีพ"
-                          >
-                            ตลอดชีพ
-                          </button>
+                        <div className="flex flex-col items-center gap-1.5 min-w-[210px]">
+                          {/* Positive Add Presets */}
+                          <div className="flex items-center gap-1 flex-wrap justify-center">
+                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded border border-emerald-200">
+                              +เพิ่ม:
+                            </span>
+                            <button
+                              onClick={() => handleQuickRenew(branch, 30)}
+                              className="px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 font-bold text-[10px] border border-blue-200 transition cursor-pointer active:scale-95"
+                              title="ต่ออายุเพิ่ม 30 วัน (1 เดือน)"
+                            >
+                              +30วัน
+                            </button>
+                            <button
+                              onClick={() => handleQuickRenew(branch, 90)}
+                              className="px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 font-bold text-[10px] border border-indigo-200 transition cursor-pointer active:scale-95"
+                              title="ต่ออายุเพิ่ม 90 วัน (3 เดือน)"
+                            >
+                              +90วัน
+                            </button>
+                            <button
+                              onClick={() => handleQuickRenew(branch, 360)}
+                              className="px-1.5 py-0.5 rounded bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 font-bold text-[10px] border border-purple-200 transition cursor-pointer active:scale-95"
+                              title="ต่ออายุเพิ่ม 360 วัน (1 ปี)"
+                            >
+                              +1ปี
+                            </button>
+                            <button
+                              onClick={() => handleQuickRenew(branch, 'lifetime')}
+                              className="px-1.5 py-0.5 rounded bg-yellow-50 hover:bg-yellow-500 hover:text-white text-yellow-800 font-bold text-[10px] border border-yellow-300 transition cursor-pointer active:scale-95"
+                              title="ปลดล็อคใช้งานตลอดชีพ"
+                            >
+                              ตลอดชีพ
+                            </button>
+                          </div>
+
+                          {/* Negative Deduct Presets & Custom Adjustment */}
+                          <div className="flex items-center gap-1 flex-wrap justify-center">
+                            <span className="text-[9px] font-bold text-rose-700 bg-rose-50 px-1 py-0.5 rounded border border-rose-200">
+                              -ลด:
+                            </span>
+                            <button
+                              onClick={() => handleQuickRenew(branch, -7)}
+                              className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-bold text-[10px] border border-rose-200 transition cursor-pointer active:scale-95"
+                              title="ลดอายุการใช้งานลง 7 วัน"
+                            >
+                              -7วัน
+                            </button>
+                            <button
+                              onClick={() => handleQuickRenew(branch, -15)}
+                              className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-bold text-[10px] border border-rose-200 transition cursor-pointer active:scale-95"
+                              title="ลดอายุการใช้งานลง 15 วัน"
+                            >
+                              -15วัน
+                            </button>
+                            <button
+                              onClick={() => handleQuickRenew(branch, -30)}
+                              className="px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-bold text-[10px] border border-rose-200 transition cursor-pointer active:scale-95"
+                              title="ลดอายุการใช้งานลง 30 วัน"
+                            >
+                              -30วัน
+                            </button>
+                            <button
+                              onClick={() => {
+                                setAdjustDaysModalItem(branch);
+                                setAdjustDaysInput('30');
+                                setAdjustMode('add');
+                                setAdjustNote('');
+                              }}
+                              className="px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-700 hover:text-white text-slate-700 font-bold text-[10px] border border-slate-300 transition cursor-pointer active:scale-95"
+                              title="ระบุจำนวนวันปรับเพิ่มหรือลดเองตามต้องการ"
+                            >
+                              ⚙️ ปรับวันเอง
+                            </button>
+                          </div>
                         </div>
                       </td>
 
@@ -801,13 +880,44 @@ export const BranchLinksHistoryView: React.FC = () => {
                 </div>
 
                 {!editIsLifetime && (
-                  <div>
+                  <div className="space-y-2">
                     <input
                       type="datetime-local"
                       value={editExpiresAt}
                       onChange={(e) => setEditExpiresAt(e.target.value)}
                       className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-mono"
                     />
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-500 font-bold">ปรับวันด่วน:</span>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftEditExpires(30)}
+                        className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-[10px] font-bold border border-blue-200 cursor-pointer"
+                      >
+                        +30 วัน
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftEditExpires(7)}
+                        className="px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-[10px] font-bold border border-blue-200 cursor-pointer"
+                      >
+                        +7 วัน
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftEditExpires(-7)}
+                        className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer"
+                      >
+                        -7 วัน
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleShiftEditExpires(-30)}
+                        className="px-2 py-0.5 rounded bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 text-[10px] font-bold border border-rose-200 cursor-pointer"
+                      >
+                        -30 วัน
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -843,6 +953,152 @@ export const BranchLinksHistoryView: React.FC = () => {
         </div>
       )}
 
+      {/* Custom Days Adjust Modal (+ เพิ่มวัน หรือ - ลดวัน) */}
+      {adjustDaysModalItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 animate-in zoom-in-95 shadow-2xl border border-slate-100">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className={`p-2 rounded-xl ${adjustMode === 'add' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                  <RefreshCw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    {adjustMode === 'add' ? '➕ เพิ่มอายุการใช้งาน' : '➖ ลดอายุการใช้งาน'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    {adjustDaysModalItem.name} ({adjustDaysModalItem.username || adjustDaysModalItem.tenantCode})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAdjustDaysModalItem(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Expiry Info */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
+              <span className="text-slate-500">วันหมดอายุปัจจุบัน:</span>
+              <strong className="text-slate-800">{formatBranchDateThai(adjustDaysModalItem.expiresAt)}</strong>
+            </div>
+
+            {/* Mode Selector Toggle: Add vs Reduce */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                เลือกรูปแบบการปรับเปลี่ยน:
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdjustMode('add')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    adjustMode === 'add'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <span>➕ เพิ่มอายุ (+)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjustMode('reduce')}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                    adjustMode === 'reduce'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <span>➖ ลดอายุ (-)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Days presets */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                {adjustMode === 'add' ? 'เลือกจำนวนวันที่ต้องการเพิ่ม (+):' : 'เลือกจำนวนวันที่ต้องการลด (-):'}
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {(adjustMode === 'add' ? [7, 15, 30, 60, 90, 180, 365] : [7, 15, 30, 45, 60, 90]).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setAdjustDaysInput(String(d))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition cursor-pointer ${
+                      adjustDaysInput === String(d)
+                        ? (adjustMode === 'add' ? 'bg-emerald-100 text-emerald-800 border-emerald-400 font-black' : 'bg-rose-100 text-rose-800 border-rose-400 font-black')
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    {adjustMode === 'add' ? `+${d}` : `-${d}`} วัน
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Number of days custom input */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                หรือระบุจำนวนวันเอง:
+              </label>
+              <div className="flex items-center gap-2">
+                <span className={`text-base font-bold ${adjustMode === 'add' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {adjustMode === 'add' ? '+' : '-'}
+                </span>
+                <input
+                  type="number"
+                  min="1"
+                  max="3650"
+                  value={adjustDaysInput}
+                  onChange={(e) => setAdjustDaysInput(e.target.value)}
+                  className="w-28 px-3 py-2 bg-white border border-slate-300 rounded-xl text-center font-bold text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
+                />
+                <span className="text-xs font-semibold text-slate-600">วัน</span>
+              </div>
+            </div>
+
+            {/* Note input */}
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                หมายเหตุการปรับปรุง (ถ้ามี):
+              </label>
+              <input
+                type="text"
+                value={adjustNote}
+                onChange={(e) => setAdjustNote(e.target.value)}
+                placeholder={adjustMode === 'add' ? 'เช่น โปรโมชั่นขยายเวลา, ชำระเงินรอบใหม่' : 'เช่น ปรับลดวันคืนเงิน, ยกเลิกแพ็กเกจ'}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setAdjustDaysModalItem(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyCustomDays}
+                className={`px-5 py-2 text-white rounded-xl font-bold text-xs transition cursor-pointer shadow-xs active:scale-95 ${
+                  adjustMode === 'add'
+                    ? 'bg-emerald-600 hover:bg-emerald-500'
+                    : 'bg-rose-600 hover:bg-rose-500'
+                }`}
+              >
+                {adjustMode === 'add' ? `ยืนยันเพิ่มเวลา (+${adjustDaysInput || 0} วัน)` : `ยืนยันลดเวลา (-${adjustDaysInput || 0} วัน)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* History Log Modal */}
       {historyModalItem && (
         <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -869,13 +1125,13 @@ export const BranchLinksHistoryView: React.FC = () => {
                 historyModalItem.renewals.map((r, i) => (
                   <div key={i} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                     <div className="flex items-center justify-between font-bold text-slate-800">
-                      <span>{r.note || `ต่ออายุ (${r.daysAdded === 'lifetime' ? 'ตลอดชีพ' : `+${r.daysAdded} วัน`})`}</span>
+                      <span>{r.note || `ต่ออายุ (${r.daysAdded === 'lifetime' ? 'ตลอดชีพ' : (typeof r.daysAdded === 'number' && r.daysAdded < 0 ? `${r.daysAdded} วัน` : `+${r.daysAdded} วัน`)})`}</span>
                       <span className="text-[10px] text-indigo-600 font-mono">
                         {new Date(r.renewedAt).toLocaleString('th-TH')}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500">
-                      วันหมดอายุใหม่: <strong className="text-slate-700">{formatBranchDateThai(r.newExpiresAt)}</strong>
+                      วันหมดอายุ: <strong className="text-slate-700">{formatBranchDateThai(r.newExpiresAt)}</strong>
                     </div>
                   </div>
                 ))

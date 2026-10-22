@@ -11,7 +11,9 @@ import {
   Calendar,
   Sparkles,
   ExternalLink,
-  Store
+  Store,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { LicenseConfig, LicenseStatus } from '../types/license';
 import { 
@@ -39,6 +41,7 @@ export const BranchLicenseStatusModal: React.FC<BranchLicenseStatusModalProps> =
   onLicenseUpdated,
 }) => {
   const [renewalCode, setRenewalCode] = useState('');
+  const [showRenewalCode, setShowRenewalCode] = useState(false);
   const [renewalMessage, setRenewalMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   if (!isOpen) return null;
@@ -48,7 +51,7 @@ export const BranchLicenseStatusModal: React.FC<BranchLicenseStatusModalProps> =
     setRenewalMessage(null);
 
     if (!renewalCode.trim()) {
-      setRenewalMessage({ type: 'error', text: 'กรุณากรอกรหัสต่ออายุ' });
+      setRenewalMessage({ type: 'error', text: 'กรุณากรอกรหัสต่ออายุที่ได้รับจากแอดมิน' });
       return;
     }
 
@@ -169,24 +172,39 @@ export const BranchLicenseStatusModal: React.FC<BranchLicenseStatusModalProps> =
             </div>
           </div>
 
-          {/* Renewal Code Entry Box */}
+          {/* Renewal Code Entry Box (Masked Password - No Plaintext Clues) */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2.5">
             <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
               <Key className="w-4 h-4 text-amber-500" />
               <span>ใส่รหัสต่ออายุการใช้งาน (Renewal Code)</span>
             </div>
             <p className="text-[11px] text-slate-500">
-              หากท่านได้รับรหัสต่ออายุจากแอดมินร้าน สามารถนำมากรอกเพื่อขยายเวลาการใช้งานได้ทันที
+              กรอกรหัสต่ออายุที่ได้รับจากแอดมินผู้ดูแลระบบเท่านั้น (รหัสผ่านจะถูกปิดบังเพื่อความปลอดภัย)
             </p>
 
             <form onSubmit={handleApplyCode} className="flex gap-2">
-              <input
-                type="text"
-                value={renewalCode}
-                onChange={(e) => setRenewalCode(e.target.value)}
-                placeholder="เช่น RENEW-30 หรือ ACT-30D-..."
-                className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono uppercase focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
+              <div className="relative flex-1">
+                <input
+                  type={showRenewalCode ? "text" : "password"}
+                  value={renewalCode}
+                  onChange={(e) => setRenewalCode(e.target.value)}
+                  placeholder="กรอกรหัสต่ออายุที่ได้รับจากแอดมิน"
+                  autoComplete="off"
+                  className="w-full pl-3 pr-9 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono tracking-wider focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRenewalCode(!showRenewalCode)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  title={showRenewalCode ? "ซ่อนรหัส" : "แสดงรหัส"}
+                >
+                  {showRenewalCode ? (
+                    <EyeOff className="w-3.5 h-3.5" />
+                  ) : (
+                    <Eye className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              </div>
               <button
                 type="submit"
                 className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
