@@ -48,20 +48,10 @@ export const BranchLinksHistoryView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expiring' | 'expired' | 'lifetime'>('all');
   
-  // Create Form State
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [formName, setFormName] = useState('');
-  const [formUsername, setFormUsername] = useState('');
-  const [formPin, setFormPin] = useState('1234');
-  const [formPhone, setFormPhone] = useState('');
-  const [formNotes, setFormNotes] = useState('');
-  const [formDurationChoice, setFormDurationChoice] = useState<number | 'lifetime' | 'custom'>(7);
-  const [formCustomDays, setFormCustomDays] = useState('30');
-  const [formSuccess, setFormSuccess] = useState<string | null>(null);
-
   // Copy states
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedShareId, setCopiedShareId] = useState<string | null>(null);
+  const [copiedPinId, setCopiedPinId] = useState<string | null>(null);
 
   // QR Modal
   const [qrModalItem, setQrModalItem] = useState<BranchLinkItem | null>(null);
@@ -150,71 +140,7 @@ export const BranchLinksHistoryView: React.FC = () => {
     });
   }, [branches, searchTerm, statusFilter]);
 
-  // Duration choice calculation
-  const effectiveDays = formDurationChoice === 'custom' 
-    ? (parseInt(formCustomDays, 10) > 0 ? parseInt(formCustomDays, 10) : 30)
-    : formDurationChoice;
 
-  // Handle Create Branch
-  const handleCreateBranch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormSuccess(null);
-
-    const cleanUser = (formUsername || `branch-${Date.now().toString().slice(-4)}`)
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9_\u0E00-\u0E7F-]/g, '');
-
-    const shopName = formName.trim() || `สาขา ${cleanUser}`;
-    const cleanPin = formPin.trim() || DEFAULT_ADMIN_PIN;
-
-    const now = new Date();
-    const expiresAt = effectiveDays === 'lifetime' 
-      ? null 
-      : new Date(now.getTime() + (effectiveDays as number) * 24 * 60 * 60 * 1000).toISOString();
-
-    const generatedUrl = buildBranchUrl(cleanUser, effectiveDays, {
-      username: cleanUser,
-      pin: cleanPin,
-      expiresAt,
-      shopName,
-    });
-
-    const newBranch: BranchLinkItem = {
-      id: `br_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      tenantCode: cleanUser,
-      username: cleanUser,
-      name: shopName,
-      branchPin: cleanPin,
-      phone: formPhone.trim(),
-      notes: formNotes.trim(),
-      daysGranted: effectiveDays,
-      createdAt: now.toISOString(),
-      expiresAt,
-      url: generatedUrl,
-      renewals: [
-        {
-          renewedAt: now.toISOString(),
-          daysAdded: effectiveDays,
-          previousExpiresAt: null,
-          newExpiresAt: expiresAt,
-          note: 'สร้างและบันทึกลิงก์สาขาเริ่มต้น',
-        }
-      ]
-    };
-
-    const updated = saveBranchLinkItem(newBranch);
-    setBranches(updated);
-    setFormSuccess(`สร้างและบันทึกประวัติลิงก์สาขา "${shopName}" เรียบร้อยแล้ว`);
-
-    // Reset form
-    setFormName('');
-    setFormUsername('');
-    setFormPin('1234');
-    setFormPhone('');
-    setFormNotes('');
-    setFormDurationChoice(7);
-  };
 
   // Handle Quick Renewal
   const handleQuickRenew = (branch: BranchLinkItem, days: number | 'lifetime') => {
@@ -286,7 +212,8 @@ export const BranchLinksHistoryView: React.FC = () => {
       ...editModalItem,
       name: editName.trim() || editModalItem.name,
       username: editUsername.trim() || editModalItem.username,
-      branchPin: editPin.trim() || '1234',
+      initialPin: editModalItem.initialPin || editModalItem.branchPin || '1234',
+      branchPin: editPin.trim() || editModalItem.branchPin || '1234',
       phone: editPhone.trim(),
       notes: editNotes.trim(),
       expiresAt: finalExpiresAt,
@@ -393,20 +320,18 @@ export const BranchLinksHistoryView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsCreateOpen(!isCreateOpen)}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-600/30 transition active:scale-95 cursor-pointer whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{isCreateOpen ? 'ปิดฟอร์มสร้างลิงก์' : '+ สร้างลิงก์สาขาใหม่'}</span>
-          </button>
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500/20 text-blue-200 border border-blue-400/30 text-xs">
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span>สร้างลิงก์สาขาใหม่ได้ที่เมนู <strong>ต่ออายุใช้งาน</strong></span>
+          </div>
 
           <button
             onClick={handleExportJSON}
             title="ส่งออกประวัติลิงก์สาขาเป็นไฟล์ JSON"
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
           >
             <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">ส่งออก JSON</span>
           </button>
         </div>
       </div>
@@ -458,163 +383,7 @@ export const BranchLinksHistoryView: React.FC = () => {
         </div>
       </div>
 
-      {/* Creation Box (Collapsible) */}
-      {isCreateOpen && (
-        <div className="bg-white rounded-3xl p-6 border border-blue-200 shadow-lg space-y-4 animate-in slide-in-from-top-4 duration-200">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-blue-600" />
-              <h2 className="text-base font-bold text-slate-900">ฟอร์มสร้างและบันทึกลิงก์สาขาใหม่</h2>
-            </div>
-            <button
-              onClick={() => setIsCreateOpen(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
 
-          <form onSubmit={handleCreateBranch} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ชื่อร้าน / ชื่อสาขา *
-                </label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="เช่น สาขาขอนแก่น, ร้านเพื่อนช่าง"
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ชื่อผู้ใช้สาขา (Username) *
-                </label>
-                <input
-                  type="text"
-                  value={formUsername}
-                  onChange={(e) => setFormUsername(e.target.value)}
-                  placeholder="เช่น branch-01, branch-udon"
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  รหัสผ่าน PIN สาขา
-                </label>
-                <input
-                  type="text"
-                  value={formPin}
-                  onChange={(e) => setFormPin(e.target.value)}
-                  placeholder="เช่น 1234"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  เบอร์โทรติดต่อสาขา
-                </label>
-                <input
-                  type="text"
-                  value={formPhone}
-                  onChange={(e) => setFormPhone(e.target.value)}
-                  placeholder="เช่น 081-xxx-xxxx"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Duration Selector */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                เลือกระยะเวลาการใช้งาน (วันหมดอายุ)
-              </label>
-              <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
-                {[
-                  { label: '7 วัน (ทดลอง)', value: 7 },
-                  { label: '30 วัน (1 เดือน)', value: 30 },
-                  { label: '90 วัน (3 เดือน)', value: 90 },
-                  { label: '180 วัน (6 เดือน)', value: 180 },
-                  { label: '360 วัน (1 ปี)', value: 360 },
-                  { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
-                  { label: 'กำหนดเอง', value: 'custom' as const },
-                ].map((preset) => {
-                  const isSelected = formDurationChoice === preset.value;
-                  return (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => setFormDurationChoice(preset.value)}
-                      className={`px-2 py-2 rounded-xl text-xs font-bold transition border cursor-pointer text-center ${
-                        isSelected
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {formDurationChoice === 'custom' && (
-                <div className="mt-2.5 flex items-center gap-2 max-w-xs">
-                  <span className="text-xs text-slate-600">ระบุจำนวนวัน:</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="3650"
-                    value={formCustomDays}
-                    onChange={(e) => setFormCustomDays(e.target.value)}
-                    className="w-24 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                  />
-                  <span className="text-xs text-slate-600">วัน</span>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                หมายเหตุเพิ่มเติม
-              </label>
-              <input
-                type="text"
-                value={formNotes}
-                onChange={(e) => setFormNotes(e.target.value)}
-                placeholder="เช่น โอนเงินผ่านบัญชีแล้ว, สำหรับช่างบอย, สัญญา 1 ปี"
-                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-slate-500">
-                ระบบจะสร้างลิงก์ที่ผูกข้อมูล Username, PIN, และวันหมดอายุไว้ให้อัตโนมัติ
-              </span>
-              <button
-                type="submit"
-                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>บันทึกและสร้างลิงก์สาขา</span>
-              </button>
-            </div>
-          </form>
-
-          {formSuccess && (
-            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{formSuccess}</span>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Filter & Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -707,17 +476,51 @@ export const BranchLinksHistoryView: React.FC = () => {
 
                       {/* 2. Username & PIN */}
                       <td className="py-3 px-4">
-                        <div className="space-y-1">
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 rounded font-mono font-bold border border-blue-200">
+                        <div className="space-y-1.5 min-w-[170px]">
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 rounded font-mono font-bold border border-blue-200 text-xs">
                             <User className="w-3 h-3 text-blue-600" />
                             <span>{branch.username || branch.tenantCode}</span>
                           </div>
-                          <div>
-                            <span className="text-[10px] text-slate-400 mr-1">PIN:</span>
-                            <span className="font-mono font-bold bg-amber-50 text-amber-800 px-1.5 py-0.2 rounded border border-amber-200 text-[11px]">
-                              {branch.branchPin || '1234'}
-                            </span>
+
+                          {/* Initial PIN (Master Recovery) */}
+                          <div className="flex items-center justify-between gap-1 text-[11px] bg-amber-50/70 border border-amber-200 px-2 py-1 rounded-lg">
+                            <div className="flex items-center gap-1">
+                              <Key className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span className="text-amber-800 text-[10px] font-semibold">รหัสเริ่มต้น:</span>
+                              <span className="font-mono font-black text-amber-900 tracking-wider">
+                                {branch.initialPin || branch.branchPin || '1234'}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(branch.initialPin || branch.branchPin || '1234');
+                                setCopiedPinId(`init_${branch.id}`);
+                                setTimeout(() => setCopiedPinId(null), 1500);
+                              }}
+                              className="text-amber-700 hover:text-amber-900 p-0.5 rounded cursor-pointer transition"
+                              title="คัดลอกรหัสเริ่มต้น (ใช้กู้คืนเมื่อผู้ใช้ลืมรหัส)"
+                            >
+                              {copiedPinId === `init_${branch.id}` ? (
+                                <Check className="w-3 h-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3 h-3" />
+                              )}
+                            </button>
                           </div>
+                          <div className="text-[9px] text-slate-500 font-medium">
+                            *ใช้กู้คืนเข้าสู่ระบบได้เสมอแม้ user เปลี่ยนรหัส
+                          </div>
+
+                          {/* Current PIN (if different from initial) */}
+                          {branch.branchPin && branch.branchPin !== (branch.initialPin || '1234') && (
+                            <div className="flex items-center gap-1 text-[10px] text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                              <span>รหัสใหม่ปัจจุบัน:</span>
+                              <span className="font-mono font-bold text-slate-800">
+                                {branch.branchPin}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </td>
 
@@ -964,7 +767,7 @@ export const BranchLinksHistoryView: React.FC = () => {
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">รหัสผ่าน PIN สาขา</label>
                   <input
-                    type="text"
+                    type="password"
                     value={editPin}
                     onChange={(e) => setEditPin(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono font-bold"

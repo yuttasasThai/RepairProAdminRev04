@@ -67,16 +67,16 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ isOpen, onClos
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-lg sm:text-xl font-bold">RepairPro Source Code Rev.04</h2>
+                <h2 className="text-lg sm:text-xl font-bold">RepairPro Source Code Rev.05</h2>
                 <span className="px-2 py-0.5 text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 rounded-full font-mono font-bold">
-                  Rev.04 (Multi-Device Sync & Financial Flow)
+                  Rev.05 (Branch Creation & Renewal Flow & Security)
                 </span>
                 <span className="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 border border-blue-400/30 rounded-full font-mono">
                   {fileKeys.length} ไฟล์
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">
-                ซอร์สโค้ดฉบับสมบูรณ์ ปรับแก้เชื่อมโยงต้นทุนอะไหล่ กราฟทุกหน้าตรงกัน และเพิ่มระบบ Login พร้อมย้ายเครื่องข้ามโทรศัพท์ (Rev.04)
+                ซอร์สโค้ดฉบับสมบูรณ์ ปรับระบบสร้างลิงก์สาขาไปไว้ที่หน้าต่ออายุ, จัดการรหัสกู้คืนเริ่มต้น, ซ่อนปุ่มกุญแจ, ปิดแสดงรหัสผ่าน และรหัสแอดมิน RepairPro0992256601 (Rev.05)
               </p>
             </div>
           </div>
@@ -96,7 +96,7 @@ export const SourceCodeModal: React.FC<SourceCodeModalProps> = ({ isOpen, onClos
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
-              <strong>สรุปการแก้ไข Rev.04:</strong> 1) แก้ไขอะไหล่ขั้นตอน 2 ปรับซิงค์ต้นทุนในขั้นตอน 3 และหน้ารายได้อัตโนมัติ 2) ปรับกราฟหน้ารายได้, งานซ่อมเสร็จ, และประกันให้ตรงกับหน้าแดชบอร์ด 3) เพิ่มระบบ Login แอดมิน/สาขา + รหัสย้ายข้อมูลข้ามโทรศัพท์เครื่องใหม่ 4) ไฟล์พร้อม Deploy บน Vercel 100%
+              <strong>สรุปการแก้ไข Rev.05:</strong> 1) ย้ายฟอร์มสร้างลิงก์สาขามาไว้ที่หน้าต่ออายุใช้งาน พร้อมกำหนดรหัสผ่าน PIN 2) หน้าลิงก์สาขาเก็บประวัติและรหัสเริ่มต้นกู้คืน 3) หน้าต่ออายุให้แอดมินใส่ลิงก์สาขาและกำหนดรหัสต่ออายุส่งให้ user 4) ซ่อนปุ่มกุญแจในลิงก์สาขา 5) ซ่อนการแสดงรหัสผ่านในช่องพิมพ์ และตั้งรหัสแอดมิน RepairPro0992256601
             </span>
           </div>
           <button

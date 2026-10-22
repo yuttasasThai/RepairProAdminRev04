@@ -307,17 +307,17 @@ export const Navbar: React.FC<NavbarProps> = ({
               />
             )}
 
-            {/* Login & Cross-Device Sync Button (เข้าสู่ระบบ / สลับบัญชี / ย้ายเครื่อง) */}
-            {onOpenLogin && (
+            {/* Login & Cross-Device Sync Button (เข้าสู่ระบบ / สลับบัญชี - แสดงเฉพาะแอดมินหลัก ไม่แสดงในลิงก์สาขา) */}
+            {onOpenLogin && !isBranch && (
               <button
                 onClick={onOpenLogin}
-                title="เข้าสู่ระบบ / สลับบัญชีแอดมิน-สาขา / ย้ายข้อมูลข้ามโทรศัพท์"
+                title="เข้าสู่ระบบ / สลับบัญชีแอดมิน / ย้ายข้อมูลข้ามโทรศัพท์"
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700/80 hover:border-slate-500 text-xs font-semibold cursor-pointer transition active:scale-95"
               >
                 <Key className="w-3.5 h-3.5 text-amber-400" />
-                <span className="hidden sm:inline">{isBranch ? 'สาขา' : 'แอดมิน'}</span>
+                <span className="hidden sm:inline">แอดมิน</span>
                 <span className="text-[10px] bg-slate-700 px-1.5 py-0.2 rounded text-slate-300 font-mono hidden md:inline">
-                  {isBranch ? 'Branch' : 'Admin'}
+                  Admin
                 </span>
               </button>
             )}

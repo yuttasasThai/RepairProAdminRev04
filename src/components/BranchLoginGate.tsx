@@ -20,7 +20,8 @@ import {
 import { LicenseConfig, LicenseStatus } from '../types/license';
 import { 
   loginBranchUser, 
-  importSyncCode 
+  importSyncCode,
+  changeBranchPassword
 } from '../utils/auth';
 import { 
   formatBranchDateThai, 
@@ -45,6 +46,8 @@ export const BranchLoginGate: React.FC<BranchLoginGateProps> = ({
   onLoginSuccess,
   onDataImported,
 }) => {
+  const [authMode, setAuthMode] = useState<'login' | 'change_password'>('login');
+
   // Pre-fill username if remembered or passed in URL
   const [username, setUsername] = useState(() => {
     try {
@@ -67,6 +70,11 @@ export const BranchLoginGate: React.FC<BranchLoginGateProps> = ({
     }
     return '';
   });
+
+  // Change password fields
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
 
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -110,6 +118,39 @@ export const BranchLoginGate: React.FC<BranchLoginGateProps> = ({
         setIsSubmitting(false);
       }
     }, 250);
+  };
+
+  const handleChangePassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    if (!oldPin.trim()) {
+      setErrorMessage('กรุณากรอกรหัสผ่านเดิม หรือรหัสเริ่มต้นที่ได้รับจากแอดมิน');
+      return;
+    }
+    if (!newPin.trim()) {
+      setErrorMessage('กรุณากรอกรหัสผ่านใหม่');
+      return;
+    }
+    if (newPin.trim() !== confirmNewPin.trim()) {
+      setErrorMessage('รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน');
+      return;
+    }
+
+    const res = changeBranchPassword(tenantId, oldPin, newPin);
+    if (res.success) {
+      setSuccessMessage(res.message);
+      setPin(newPin);
+      setOldPin('');
+      setNewPin('');
+      setConfirmNewPin('');
+      setTimeout(() => {
+        setAuthMode('login');
+      }, 1500);
+    } else {
+      setErrorMessage(res.message);
+    }
   };
 
   const handleExecuteSyncImport = () => {
@@ -203,86 +244,204 @@ export const BranchLoginGate: React.FC<BranchLoginGateProps> = ({
             </div>
           )}
 
-          {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                ชื่อผู้ใช้สาขา (Username)
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="เช่น branch-01"
-                  required
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
-                />
-                <Store className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">
-                รหัสผ่าน PIN สาขา
-              </label>
-              <div className="relative">
-                <input
-                  type="password"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  placeholder="รหัสผ่าน PIN (เช่น 1234)"
-                  required
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
-                />
-                <Key className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
-              </div>
-              <p className="text-[10px] text-slate-500 mt-1">
-                * ค่าเริ่มต้นคือ 1234 หรือรหัสที่ได้รับจากแอดมิน
-              </p>
-            </div>
-
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center gap-2 cursor-pointer select-none text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
-                />
-                <span>จำการตั้งค่าและการเข้าสู่ระบบบนเครื่องนี้</span>
-              </label>
-            </div>
-
-            {errorMessage && (
-              <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {successMessage && (
-              <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>{successMessage}</span>
-              </div>
-            )}
-
+          {/* Tab Selector: เข้าสู่ระบบ vs ตั้งรหัสผ่านใหม่ */}
+          <div className="flex bg-slate-100 p-1 rounded-xl">
             <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/25 transition active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setErrorMessage(null);
+                setSuccessMessage(null);
+              }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                authMode === 'login' 
+                  ? 'bg-white text-blue-700 shadow-xs' 
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
             >
-              {isSubmitting ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <span>เข้าสู่ระบบเพื่อเริ่มใช้งาน</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
+              เข้าสู่ระบบ (Login)
             </button>
-          </form>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('change_password');
+                setErrorMessage(null);
+                setSuccessMessage(null);
+              }}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer ${
+                authMode === 'change_password' 
+                  ? 'bg-white text-blue-700 shadow-xs' 
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              ตั้งรหัสผ่านใหม่
+            </button>
+          </div>
+
+          {authMode === 'login' ? (
+            /* Login Form */
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ชื่อผู้ใช้สาขา (Username)
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="เช่น branch-01"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                  />
+                  <Store className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  รหัสผ่าน PIN สาขา
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    placeholder="รหัสผ่าน PIN"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                  />
+                  <Key className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                </div>
+                <div className="mt-1.5 text-[11px] text-slate-500 bg-amber-50/80 border border-amber-200/80 p-2 rounded-lg">
+                  💡 <strong>หากลืมรหัสผ่าน:</strong> สามารถใช้ <strong>รหัสเริ่มต้น</strong> ที่แอดมินสร้างให้เข้าสู่ระบบได้เสมอ หรือติดต่อแอดมินเพื่อขอรหัสเริ่มต้น
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-1">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                  />
+                  <span>จำการตั้งค่าและการเข้าสู่ระบบบนเครื่องนี้</span>
+                </label>
+              </div>
+
+              {errorMessage && (
+                <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-500/25 transition active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <span>เข้าสู่ระบบเพื่อเริ่มใช้งาน</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+          ) : (
+            /* Change Password Form */
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  รหัสผ่านเดิม หรือ รหัสเริ่มต้นจากแอดมิน
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={oldPin}
+                    onChange={(e) => setOldPin(e.target.value)}
+                    placeholder="ใส่รหัสเดิม หรือ รหัสเริ่มต้นที่แอดมินสร้างให้"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                  />
+                  <Key className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  รหัสผ่านใหม่ที่ต้องการตั้ง
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={newPin}
+                    onChange={(e) => setNewPin(e.target.value)}
+                    placeholder="รหัสผ่านใหม่ (เช่น 5678)"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                  />
+                  <Key className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ยืนยันรหัสผ่านใหม่อีกครั้ง
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={confirmNewPin}
+                    onChange={(e) => setConfirmNewPin(e.target.value)}
+                    placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง"
+                    required
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+                  />
+                  <Key className="w-4 h-4 text-slate-400 absolute right-3.5 top-3" />
+                </div>
+              </div>
+
+              <div className="text-[11px] text-slate-600 bg-blue-50/80 border border-blue-200/80 p-2.5 rounded-xl space-y-1">
+                <p className="font-semibold text-blue-900">📌 บันทึกความปลอดภัย:</p>
+                <p>
+                  ระบบจะบันทึกรหัสผ่านใหม่ของท่าน และยังคงเก็บ <strong>รหัสเริ่มต้น</strong> ไว้ในบันทึกของแอดมิน เพื่อให้กรณีท่านลืมรหัสผ่านใหม่ สามารถขอรหัสเริ่มต้นจากแอดมินมาใช้เข้าสู่ระบบได้ตลอดเวลา
+                </p>
+              </div>
+
+              {errorMessage && (
+                <div className="p-2.5 bg-rose-50 border border-rose-300 text-rose-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              {successMessage && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm rounded-xl shadow-md transition active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>บันทึกรหัสผ่านใหม่</span>
+              </button>
+            </form>
+          )}
 
           {/* Cross-Device Settings & Sync (ย้ายข้อมูล / จำค่าที่ตั้งไว้ข้ามเครื่อง) */}
           <div className="pt-3 border-t border-slate-200">

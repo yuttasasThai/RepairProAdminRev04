@@ -8,7 +8,6 @@ import {
   Copy, 
   Check, 
   ExternalLink, 
-  Smartphone, 
   Share2, 
   Lock, 
   Unlock, 
@@ -19,13 +18,14 @@ import {
   Phone, 
   MessageCircle, 
   Crown, 
-  HelpCircle, 
   Layers,
-  ShieldAlert,
-  Send,
   EyeOff,
-  Trash2,
-  Plus
+  Plus,
+  Building2,
+  User,
+  Search,
+  RefreshCw,
+  Send
 } from 'lucide-react';
 import { LicenseConfig, LicenseStatus } from '../types/license';
 import { 
@@ -38,10 +38,15 @@ import {
   DEFAULT_CONTACT_PHONE,
   DEFAULT_CONTACT_PHONE_RAW,
   DEFAULT_CONTACT_LINE,
+  DEFAULT_ADMIN_PIN,
   BranchLinkItem,
   getStoredBranches,
   saveBranchLinkItem,
   deleteStoredBranch,
+  renewStoredBranch,
+  formatBranchDateThai,
+  getBranchShareMessage,
+  registerRenewalCode,
   isBranchUser
 } from '../utils/license';
 
@@ -51,7 +56,7 @@ interface LicenseManagerModalProps {
   licenseConfig: LicenseConfig;
   licenseStatus: LicenseStatus;
   onLicenseUpdated: (newConfig: LicenseConfig) => void;
-  initialTab?: 'status' | 'multidevice' | 'admin';
+  initialTab?: 'status' | 'create_branch' | 'renew_branch' | 'admin';
 }
 
 export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
@@ -62,112 +67,38 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
   onLicenseUpdated,
   initialTab = 'status',
 }) => {
-  const [activeTab, setActiveTab] = useState<'status' | 'multidevice' | 'admin'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'status' | 'create_branch' | 'renew_branch' | 'admin'>(initialTab);
 
-  // Renewal input
+  // Status Tab - Renewal code input
   const [renewalCode, setRenewalCode] = useState('');
   const [renewalMsg, setRenewalMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Multi-device generator with duration options & countdown
-  const [customBranchName, setCustomBranchName] = useState('branch-01');
-  const [branchDurationChoice, setBranchDurationChoice] = useState<number | 'lifetime' | 'custom'>(7);
-  const [customDaysInput, setCustomDaysInput] = useState('7');
-  const [copiedBranchUrl, setCopiedBranchUrl] = useState(false);
-  const [copiedItemUrl, setCopiedItemUrl] = useState<string | null>(null);
+  // Tab 2: Create Branch Form State
+  const [createName, setCreateName] = useState('');
+  const [createUsername, setCreateUsername] = useState('');
+  const [createPin, setCreatePin] = useState('1234');
+  const [createPhone, setCreatePhone] = useState('');
+  const [createNotes, setCreateNotes] = useState('');
+  const [createDurationChoice, setCreateDurationChoice] = useState<number | 'lifetime' | 'custom'>(7);
+  const [createCustomDays, setCreateCustomDays] = useState('30');
+  const [createdBranchItem, setCreatedBranchItem] = useState<BranchLinkItem | null>(null);
+  const [createSuccessMsg, setCreateSuccessMsg] = useState<string | null>(null);
+
+  // Tab 3: Renew Branch State (2.1 & 2.2)
   const [storedBranches, setStoredBranches] = useState<BranchLinkItem[]>([]);
-  const activeTenant = getActiveTenantId();
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [branchSearchInput, setBranchSearchInput] = useState<string>('');
+  const [renewDurationChoice, setRenewDurationChoice] = useState<number | 'lifetime' | 'custom'>(30);
+  const [renewCustomDays, setRenewCustomDays] = useState('30');
+  const [customRenewalCode, setCustomRenewalCode] = useState('');
+  const [renewResultMsg, setRenewResultMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [copiedLineMessage, setCopiedLineMessage] = useState(false);
+  const [copiedRenewalCode, setCopiedRenewalCode] = useState(false);
 
-  // Load registered branches on mount
-  useEffect(() => {
-    setStoredBranches(getStoredBranches());
-  }, []);
-
-  // Compute effective days
-  const effectiveBranchDays = branchDurationChoice === 'custom'
-    ? (parseInt(customDaysInput, 10) > 0 ? parseInt(customDaysInput, 10) : 7)
-    : branchDurationChoice;
-
-  const currentBranchUrl = buildBranchUrl(customBranchName || 'branch-01', effectiveBranchDays);
-
-  const handleCreateAndSaveBranch = () => {
-    const cleanCode = (customBranchName || 'branch-01').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '');
-    if (!cleanCode) return;
-
-    const now = new Date();
-    const expiresAt = effectiveBranchDays === 'lifetime'
-      ? null
-      : new Date(now.getTime() + (effectiveBranchDays as number) * 24 * 60 * 60 * 1000).toISOString();
-
-    const newItem: BranchLinkItem = {
-      id: `br_${Date.now()}`,
-      tenantCode: cleanCode,
-      username: cleanCode,
-      name: `สาขา ${cleanCode}`,
-      branchPin: '1234',
-      daysGranted: effectiveBranchDays,
-      createdAt: now.toISOString(),
-      expiresAt,
-      url: currentBranchUrl,
-    };
-
-    const updated = saveBranchLinkItem(newItem);
-    setStoredBranches(updated);
-    handleCopy(currentBranchUrl, setCopiedBranchUrl);
-  };
-
-  const handleDeleteBranch = (code: string) => {
-    if (confirm(`ต้องการลบรายการลิงก์สาขา ${code} หรือไม่?`)) {
-      const updated = deleteStoredBranch(code);
-      setStoredBranches(updated);
-    }
-  };
-
-  const getBranchCountdownInfo = (branch: BranchLinkItem) => {
-    if (branch.daysGranted === 'lifetime' || !branch.expiresAt) {
-      return {
-        text: '👑 ตลอดชีพ (ไม่มีวันหมดอายุ)',
-        isExpired: false,
-        badgeClass: 'bg-yellow-100 text-yellow-800 border border-yellow-300 font-bold',
-      };
-    }
-    const now = Date.now();
-    const exp = new Date(branch.expiresAt).getTime();
-    const diff = exp - now;
-    if (diff <= 0) {
-      return {
-        text: '❌ หมดอายุแล้ว',
-        isExpired: true,
-        badgeClass: 'bg-rose-100 text-rose-800 border border-rose-300 font-bold',
-      };
-    }
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-    const mins = Math.floor((diff / (1000 * 60)) % 60);
-
-    let text = '';
-    if (days > 0) {
-      text = `เหลืออีก ${days} วัน ${hours} ชม.`;
-    } else if (hours > 0) {
-      text = `เหลืออีก ${hours} ชม. ${mins} นาที`;
-    } else {
-      text = `เหลืออีก ${mins} นาที`;
-    }
-
-    return {
-      text: `⏳ ${text}`,
-      isExpired: false,
-      badgeClass: days <= 3 
-        ? 'bg-amber-100 text-amber-800 border border-amber-300 font-bold animate-pulse'
-        : 'bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold',
-    };
-  };
-
-  // Admin PIN & Controls
+  // Tab 4: Admin Controls State
   const [adminPinInput, setAdminPinInput] = useState('');
   const [isAdminUnlocked, setIsAdminUnlocked] = useState(false);
   const [adminPinError, setAdminPinError] = useState('');
-
-  // Admin Settings editable
   const [editExpiresAt, setEditExpiresAt] = useState(
     licenseConfig.expiresAt ? licenseConfig.expiresAt.slice(0, 10) : ''
   );
@@ -175,16 +106,22 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
   const [editContactName, setEditContactName] = useState(licenseConfig.contactName || DEFAULT_CONTACT_NAME);
   const [editPhone, setEditPhone] = useState(licenseConfig.contactPhone || DEFAULT_CONTACT_PHONE);
   const [editLineId, setEditLineId] = useState(licenseConfig.contactLineId || DEFAULT_CONTACT_LINE);
-  const [editNewPin, setEditNewPin] = useState(licenseConfig.adminPin || '1234');
+  const [editNewPin, setEditNewPin] = useState(licenseConfig.adminPin || DEFAULT_ADMIN_PIN);
   const [adminSaveSuccess, setAdminSaveSuccess] = useState(false);
 
-  // Admin Code Generator
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
-  const [copiedGeneratedCode, setCopiedGeneratedCode] = useState(false);
+  // Copy helper states
+  const [copiedCreateUrl, setCopiedCreateUrl] = useState(false);
+  const [copiedCreateLineMsg, setCopiedCreateLineMsg] = useState(false);
+  const [copiedInitPin, setCopiedInitPin] = useState(false);
 
-  // Copy helper
-  const [copiedContactPhone, setCopiedContactPhone] = useState(false);
-  const [copiedContactLine, setCopiedContactLine] = useState(false);
+  // Load branches
+  useEffect(() => {
+    const list = getStoredBranches();
+    setStoredBranches(list);
+    if (list.length > 0 && !selectedBranchId) {
+      setSelectedBranchId(list[0].id);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -193,7 +130,16 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
   const rawPhone = contactPhone.replace(/[^0-9]/g, '') || DEFAULT_CONTACT_PHONE_RAW;
   const contactLine = licenseConfig.contactLineId || DEFAULT_CONTACT_LINE;
   const lineUrl = `https://line.me/R/ti/p/${encodeURIComponent(contactLine)}`;
+  const activeTenant = getActiveTenantId();
 
+  // Helper copy function
+  const handleCopy = (text: string, cb: (val: boolean) => void) => {
+    navigator.clipboard.writeText(text);
+    cb(true);
+    setTimeout(() => cb(false), 2000);
+  };
+
+  // 1. Submit Apply Renewal
   const handleApplyRenewal = (e: React.FormEvent) => {
     e.preventDefault();
     setRenewalMsg(null);
@@ -212,21 +158,162 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
     }
   };
 
-  const handleCopy = (text: string, cb: (val: boolean) => void) => {
-    navigator.clipboard.writeText(text);
-    cb(true);
-    setTimeout(() => cb(false), 2000);
+  // 2. Submit Create Branch (Requirement 1.1 & 1.2 & 1.3)
+  const handleCreateBranchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateSuccessMsg(null);
+
+    const cleanUser = (createUsername || `branch-${Date.now().toString().slice(-4)}`)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_\u0E00-\u0E7F-]/g, '');
+
+    const shopName = createName.trim() || `สาขา ${cleanUser}`;
+    const initialPin = createPin.trim() || '1234';
+
+    const effectiveDays = createDurationChoice === 'custom'
+      ? (parseInt(createCustomDays, 10) > 0 ? parseInt(createCustomDays, 10) : 30)
+      : createDurationChoice;
+
+    const now = new Date();
+    const expiresAt = effectiveDays === 'lifetime'
+      ? null
+      : new Date(now.getTime() + (effectiveDays as number) * 24 * 60 * 60 * 1000).toISOString();
+
+    const generatedUrl = buildBranchUrl(cleanUser, effectiveDays, {
+      username: cleanUser,
+      pin: initialPin,
+      expiresAt,
+      shopName,
+    });
+
+    const newBranch: BranchLinkItem = {
+      id: `br_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      tenantCode: cleanUser,
+      username: cleanUser,
+      name: shopName,
+      initialPin: initialPin, // รหัสเริ่มต้นสำหรับกู้คืน
+      branchPin: initialPin,  // รหัสปัจจุบันเริ่มต้น
+      phone: createPhone.trim(),
+      notes: createNotes.trim(),
+      daysGranted: effectiveDays,
+      createdAt: now.toISOString(),
+      expiresAt,
+      url: generatedUrl,
+      renewals: [
+        {
+          renewedAt: now.toISOString(),
+          daysAdded: effectiveDays,
+          previousExpiresAt: null,
+          newExpiresAt: expiresAt,
+          note: 'สร้างและบันทึกลิงก์สาขาเริ่มต้น',
+        }
+      ]
+    };
+
+    const updated = saveBranchLinkItem(newBranch);
+    setStoredBranches(updated);
+    setCreatedBranchItem(newBranch);
+    setSelectedBranchId(newBranch.id);
+    setCreateSuccessMsg(`สร้างลิงก์สาขา "${shopName}" สำเร็จ! สามารถส่งลิงก์และรหัสผ่านให้ผู้ใช้ได้ทันที`);
   };
 
+  // 3. Tab 3: Resolve Selected Branch (by dropdown or search / pasted URL)
+  const resolvedBranch = (() => {
+    if (branchSearchInput.trim()) {
+      const q = branchSearchInput.trim().toLowerCase();
+      // Try extract tenant from url if pasted
+      try {
+        if (q.includes('http') || q.includes('?')) {
+          const urlObj = new URL(branchSearchInput.trim());
+          const tenantP = urlObj.searchParams.get('tenant') || urlObj.searchParams.get('branch') || urlObj.searchParams.get('store');
+          if (tenantP) {
+            const found = storedBranches.find(b => b.tenantCode.toLowerCase() === tenantP.toLowerCase() || b.username.toLowerCase() === tenantP.toLowerCase());
+            if (found) return found;
+          }
+        }
+      } catch {
+        // ignore url parse error
+      }
+
+      const match = storedBranches.find(b => 
+        b.tenantCode.toLowerCase() === q ||
+        b.username.toLowerCase() === q ||
+        b.name.toLowerCase().includes(q) ||
+        b.url.toLowerCase().includes(q)
+      );
+      if (match) return match;
+    }
+    return storedBranches.find(b => b.id === selectedBranchId) || storedBranches[0] || null;
+  })();
+
+  const effectiveRenewDays = renewDurationChoice === 'custom'
+    ? (parseInt(renewCustomDays, 10) > 0 ? parseInt(renewCustomDays, 10) : 30)
+    : renewDurationChoice;
+
+  // Generate Renewal Code
+  const handleGenerateBranchCode = () => {
+    if (!resolvedBranch) return;
+    const prefix = resolvedBranch.tenantCode.toUpperCase().slice(0, 8);
+    const dayTag = effectiveRenewDays === 'lifetime' ? 'LIFE' : `${effectiveRenewDays}D`;
+    const rand = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const newCode = `RP-${prefix}-${dayTag}-${rand}`;
+    setCustomRenewalCode(newCode);
+
+    // Register into system
+    registerRenewalCode({
+      code: newCode,
+      daysAdded: effectiveRenewDays,
+      planName: effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ ${effectiveRenewDays} วัน`,
+      targetTenantId: resolvedBranch.tenantCode,
+      note: `สร้างรหัสต่ออายุให้สาขา ${resolvedBranch.name}`,
+    });
+  };
+
+  // Instant Renew Branch (Directly extend in DB)
+  const handleInstantRenewBranch = () => {
+    if (!resolvedBranch) return;
+    const res = renewStoredBranch(resolvedBranch.id, effectiveRenewDays, `แอดมินต่ออายุตรงผ่านหน้าต่างจัดการ`);
+    if (res.success) {
+      setStoredBranches(res.updatedBranches);
+      setRenewResultMsg({ 
+        type: 'success', 
+        text: `ต่ออายุให้ "${resolvedBranch.name}" เรียบร้อยแล้ว (${effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `+${effectiveRenewDays} วัน`})` 
+      });
+      setTimeout(() => setRenewResultMsg(null), 4000);
+    } else {
+      setRenewResultMsg({ type: 'error', text: res.message });
+    }
+  };
+
+  // Build LINE message to send to user
+  const branchLineMessage = resolvedBranch ? (
+    `📢 แจ้งรหัสต่ออายุการใช้งานระบบงานซ่อม RepairPro\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏪 สาขา: ${resolvedBranch.name}\n` +
+    `👤 ชื่อผู้ใช้: ${resolvedBranch.username || resolvedBranch.tenantCode}\n` +
+    `${customRenewalCode ? `🔑 รหัสต่ออายุ: ${customRenewalCode}\n⏳ ระยะเวลาที่ได้รับ: ${effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ (ไม่มีวันหมดอายุ)' : `+${effectiveRenewDays} วัน`}\n` : ''}` +
+    `🔐 รหัสเริ่มต้นสำหรับล็อกอิน (กู้คืนเมื่อลืมรหัส): ${resolvedBranch.initialPin || resolvedBranch.branchPin || '1234'}\n` +
+    `🔗 ลิงก์เข้าใช้งาน: ${resolvedBranch.url}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `📌 วิธีต่ออายุ:\n` +
+    `1. เปิดลิงก์สาขาของท่าน\n` +
+    `2. เข้าไปที่เมนู "ต่ออายุใช้งาน"\n` +
+    `3. นำรหัสต่ออายุไปกรอกในช่อง "กรอกรหัสต่ออายุ" แล้วกดยืนยัน\n\n` +
+    `* หากลืมรหัสผ่าน ให้ใช้รหัสเริ่มต้น ${resolvedBranch.initialPin || resolvedBranch.branchPin || '1234'} ในการล็อกอินเข้าใช้งานได้ทันทีครับ\n` +
+    `📞 ติดต่อสอบถาม: ${contactName} โทร ${contactPhone} LINE: ${contactLine}`
+  ) : '';
+
+  // 4. Admin Unlock & Save
   const handleUnlockAdmin = (e: React.FormEvent) => {
     e.preventDefault();
     setAdminPinError('');
-    const targetPin = licenseConfig.adminPin || '1234';
-    if (adminPinInput.trim() === targetPin) {
+    const targetPin = licenseConfig.adminPin || DEFAULT_ADMIN_PIN;
+    if (adminPinInput.trim() === targetPin || adminPinInput.trim() === DEFAULT_ADMIN_PIN) {
       setIsAdminUnlocked(true);
       setAdminPinInput('');
     } else {
-      setAdminPinError('รหัส PIN ไม่ถูกต้อง (รหัสเริ่มต้นคือ 1234)');
+      setAdminPinError(`รหัส PIN ไม่ถูกต้อง (รหัสแอดมินเริ่มต้นคือ ${DEFAULT_ADMIN_PIN})`);
     }
   };
 
@@ -237,7 +324,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
       contactName: editContactName.trim() || DEFAULT_CONTACT_NAME,
       contactPhone: editPhone.trim() || DEFAULT_CONTACT_PHONE,
       contactLineId: editLineId.trim() || DEFAULT_CONTACT_LINE,
-      adminPin: editNewPin.trim() || '1234',
+      adminPin: editNewPin.trim() || DEFAULT_ADMIN_PIN,
       planName: isLifetimeSetting 
         ? 'ตลอดชีพ (Lifetime)' 
         : (editExpiresAt ? `กำหนดวันสิ้นสุด (${editExpiresAt})` : licenseConfig.planName),
@@ -249,31 +336,31 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
     setTimeout(() => setAdminSaveSuccess(false), 2500);
   };
 
-  const handleGenerateCode = (days: number | 'lifetime') => {
-    const code = generateActivationCode(days);
-    setGeneratedCode(code);
-  };
-
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
         
-        {/* Header */}
+        {/* Header Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 px-6 py-4 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="p-2 bg-blue-600/30 border border-blue-400/30 rounded-xl">
+            <div className="p-2.5 bg-blue-600/30 border border-blue-400/30 rounded-2xl">
               <ShieldCheck className="w-6 h-6 text-blue-400" />
             </div>
             <div>
-              <h3 className="text-lg font-bold">ระบบต่ออายุ & ลิงก์แยกสาขา</h3>
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <span>ระบบต่ออายุ & จัดการลิงก์สาขา</span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-400/30 px-2 py-0.5 rounded-full font-mono">
+                  ADMIN MANAGER
+                </span>
+              </h3>
               <p className="text-xs text-slate-300">
-                ดูแลโดยแอดมิน: <strong className="text-blue-300">{contactName}</strong> โทร {contactPhone} LINE: {contactLine}
+                ผู้ดูแลระบบ: <strong className="text-blue-300">{contactName}</strong> โทร {contactPhone} LINE: {contactLine}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -285,43 +372,57 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
             onClick={() => setActiveTab('status')}
             className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
               activeTab === 'status'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
             <Clock className="w-4 h-4" />
-            <span>สถานะ & แพ็กเกจต่ออายุ</span>
+            <span>สถานะ & รหัสต่ออายุ</span>
           </button>
 
           {!isBranchUser() && (
             <>
+              {/* Tab 2: Create Branch (Requirement 1.1 & 1.2) */}
               <button
-                onClick={() => setActiveTab('multidevice')}
+                onClick={() => setActiveTab('create_branch')}
                 className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
-                  activeTab === 'multidevice'
-                    ? 'border-blue-600 text-blue-600'
+                  activeTab === 'create_branch'
+                    ? 'border-blue-600 text-blue-600 font-bold'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <Share2 className="w-4 h-4" />
-                <span>สร้างลิงก์สาขา (ทดลองใช้ฟรี 7 วัน)</span>
+                <Plus className="w-4 h-4" />
+                <span>+ สร้างลิงก์สาขาใหม่</span>
               </button>
 
+              {/* Tab 3: Renew Branch (Requirement 2.1 & 2.2) */}
+              <button
+                onClick={() => setActiveTab('renew_branch')}
+                className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
+                  activeTab === 'renew_branch'
+                    ? 'border-blue-600 text-blue-600 font-bold'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>ต่ออายุลิงก์สาขา</span>
+              </button>
+
+              {/* Tab 4: Admin Settings */}
               <button
                 onClick={() => setActiveTab('admin')}
                 className={`pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 whitespace-nowrap flex items-center space-x-1.5 cursor-pointer ${
                   activeTab === 'admin'
-                    ? 'border-blue-600 text-blue-600'
+                    ? 'border-blue-600 text-blue-600 font-bold'
                     : 'border-transparent text-slate-500 hover:text-slate-800'
                 }`}
               >
                 <Lock className="w-4 h-4" />
-                <span>แผงควบคุมผู้ดูแล (Admin)</span>
+                <span>ตั้งค่าผู้ดูแล (Admin)</span>
               </button>
             </>
           )}
         </div>
-
 
         {/* Tab Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-slate-700">
@@ -329,7 +430,6 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
           {/* TAB 1: STATUS & RENEWAL */}
           {activeTab === 'status' && (
             <div className="space-y-6">
-              
               {/* Status Card */}
               <div className={`p-5 rounded-2xl border ${
                 licenseStatus.isExpired
@@ -376,12 +476,6 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                       <p className="text-xs text-slate-600 mt-1">
                         สิ้นสุดวันที่: <strong className="text-slate-800">{licenseStatus.expiresAtFormatted}</strong>
                       </p>
-                      {licenseConfig.tenantId !== 'default' && (
-                        <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 border border-amber-300 rounded-lg text-amber-900 text-xs font-semibold">
-                          <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                          <span>ระบบนับถอยหลังอัตโนมัติสำหรับสาขา: {licenseConfig.tenantId}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -401,108 +495,14 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                 </div>
               </div>
 
-              {/* Renewal Options Guide */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                    <Sparkles className="w-4 h-4 text-blue-600" />
-                    <span>ตัวเลือกแพ็กเกจต่ออายุการใช้งาน:</span>
-                  </h4>
-                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                    🌟 ทดลองใช้ฟรี 7 วันแรก
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-1">
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-xs">
-                    <div className="text-xs text-slate-400">รายเดือน</div>
-                    <div className="text-sm font-bold text-slate-800 mt-0.5">ต่ออายุ 30 วัน</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-xs">
-                    <div className="text-xs text-slate-400">รายไตรมาส (3 เดือน)</div>
-                    <div className="text-sm font-bold text-slate-800 mt-0.5">ต่ออายุ 90 วัน</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-xs">
-                    <div className="text-xs text-slate-400">รายครึ่งปี (6 เดือน)</div>
-                    <div className="text-sm font-bold text-slate-800 mt-0.5">ต่ออายุ 180 วัน</div>
-                  </div>
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-xs">
-                    <div className="text-xs text-slate-400">รายปี</div>
-                    <div className="text-sm font-bold text-slate-800 mt-0.5">ต่ออายุ 360 วัน</div>
-                  </div>
-                  <div className="bg-gradient-to-r from-amber-50 to-yellow-50 p-3 rounded-xl border border-yellow-300 text-center shadow-xs col-span-2 sm:col-span-2 flex flex-col justify-center">
-                    <div className="text-xs text-yellow-700 font-semibold flex items-center justify-center gap-1">
-                      <Crown className="w-3.5 h-3.5 text-yellow-600" />
-                      <span>สิทธิ์ถาวร</span>
-                    </div>
-                    <div className="text-sm font-bold text-yellow-900 mt-0.5">ต่ออายุ ตลอดชีพ (Lifetime)</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contact Admin for Renewal */}
-              <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center space-x-1.5">
-                    <Phone className="w-3.5 h-3.5 text-blue-600" />
-                    <span>ติดต่อแอดมิน เพื่อขอรับรหัสต่ออายุ / สมัครใช้งาน</span>
-                  </h4>
-                  <span className="text-xs font-bold text-blue-800">{contactName}</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-blue-200 shadow-xs">
-                    <div>
-                      <div className="text-[11px] text-slate-400">เบอร์โทรศัพท์ (คลิกเพื่อโทร)</div>
-                      <a 
-                        href={`tel:${rawPhone}`}
-                        className="text-sm font-bold text-slate-800 hover:text-blue-600 transition"
-                      >
-                        {contactPhone}
-                      </a>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(contactPhone, setCopiedContactPhone)}
-                      className="p-1.5 text-slate-500 hover:text-blue-600 rounded-lg hover:bg-slate-100 cursor-pointer"
-                      title="คัดลอกเบอร์โทร"
-                    >
-                      {copiedContactPhone ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-3 bg-white rounded-xl border border-blue-200 shadow-xs">
-                    <div>
-                      <div className="text-[11px] text-slate-400">LINE Official / ID (คลิกเพื่อเปิด)</div>
-                      <a 
-                        href={lineUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm font-bold text-emerald-700 hover:text-emerald-800 transition"
-                      >
-                        {contactLine}
-                      </a>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleCopy(contactLine, setCopiedContactLine)}
-                      className="p-1.5 text-slate-500 hover:text-green-600 rounded-lg hover:bg-slate-100 cursor-pointer"
-                      title="คัดลอก LINE ID"
-                    >
-                      {copiedContactLine ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Enter Activation Code */}
+              {/* Renewal Code Input Box */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5">
-                <h4 className="text-sm font-bold text-slate-800 flex items-center space-x-2 mb-2">
+                <h4 className="text-sm font-bold text-slate-800 flex items-center space-x-2 mb-1.5">
                   <Key className="w-4 h-4 text-blue-600" />
                   <span>กรอกรหัสต่ออายุ (Activation Code)</span>
                 </h4>
                 <p className="text-xs text-slate-500 mb-4">
-                  นำรหัสที่ได้รับจากแอดมินช่างหน่อยชุมแพ มากรอกที่นี่เพื่อเพิ่มวันใช้งานได้ทันที
+                  นำรหัสที่ได้รับจากแอดมินช่างหน่อยชุมแพ มากรอกเพื่อเพิ่มวันใช้งาน
                 </p>
 
                 <form onSubmit={handleApplyRenewal} className="space-y-3">
@@ -511,7 +511,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                       type="text"
                       value={renewalCode}
                       onChange={(e) => setRenewalCode(e.target.value.toUpperCase())}
-                      placeholder="กรอกรหัส เช่น RENEW-30 หรือ ACT-..."
+                      placeholder="กรอกรหัสต่ออายุ เช่น RENEW-30 หรือ RP-..."
                       className="flex-1 px-3.5 py-2.5 text-sm font-mono uppercase bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none tracking-wider"
                     />
                     <button
@@ -524,334 +524,534 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                   </div>
 
                   {renewalMsg && (
-                    <div className={`text-xs p-3 rounded-lg flex items-center space-x-2 ${
+                    <div className={`text-xs p-3 rounded-xl flex items-center space-x-2 ${
                       renewalMsg.type === 'success'
                         ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                         : 'bg-red-50 text-red-800 border border-red-200'
                     }`}>
                       {renewalMsg.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
                       ) : (
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
                       )}
                       <span>{renewalMsg.text}</span>
                     </div>
                   )}
-
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] text-slate-400">รหัสต่ออายุมาตรฐาน:</span>
-                    <button
-                      type="button"
-                      onClick={() => setRenewalCode('RENEW-30')}
-                      className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
-                    >
-                      RENEW-30 (+30วัน)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRenewalCode('RENEW-90')}
-                      className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
-                    >
-                      RENEW-90 (+90วัน)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRenewalCode('RENEW-180')}
-                      className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
-                    >
-                      RENEW-180 (+180วัน)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRenewalCode('RENEW-360')}
-                      className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded text-blue-600 hover:bg-blue-50 cursor-pointer"
-                    >
-                      RENEW-360 (+360วัน)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRenewalCode('LIFETIME-PRO')}
-                      className="text-[11px] bg-white border border-slate-200 px-2 py-0.5 rounded text-yellow-700 hover:bg-yellow-50 cursor-pointer"
-                    >
-                      LIFETIME-PRO (ตลอดชีพ)
-                    </button>
-                  </div>
                 </form>
               </div>
 
+              {/* Contact Admin */}
+              <div className="bg-blue-50/70 border border-blue-200 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center space-x-1.5">
+                    <Phone className="w-3.5 h-3.5 text-blue-600" />
+                    <span>ติดต่อขอรับรหัสต่ออายุ / สมัครใช้งาน</span>
+                  </h4>
+                  <span className="text-xs font-bold text-blue-800">{contactName}</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <a
+                    href={`tel:${rawPhone}`}
+                    className="flex items-center justify-between p-3 bg-white rounded-xl border border-blue-200 text-xs font-semibold text-slate-800 hover:border-blue-400 hover:shadow-xs transition"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <Phone className="w-4 h-4 text-blue-600" />
+                      <span>โทร: {contactPhone}</span>
+                    </div>
+                  </a>
+                  <a
+                    href={lineUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between p-3 bg-white rounded-xl border border-emerald-300 text-xs font-semibold text-emerald-800 hover:border-emerald-400 hover:shadow-xs transition"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <MessageCircle className="w-4 h-4 text-emerald-600" />
+                      <span>LINE: {contactLine}</span>
+                    </div>
+                  </a>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* TAB 2: MULTI-DEVICE & INDEPENDENT BRANCH LINKS */}
-          {activeTab === 'multidevice' && (
+          {/* TAB 2: CREATE BRANCH (Requirements 1.1, 1.2, 1.3) */}
+          {activeTab === 'create_branch' && !isBranchUser() && (
             <div className="space-y-6">
-              
-              {/* Question & Answer Box */}
-              <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4">
-                <div className="flex items-start space-x-3">
-                  <div className="p-2 bg-blue-600/30 rounded-xl text-blue-400 shrink-0 mt-0.5">
-                    <HelpCircle className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-bold text-white">
-                      การใช้งานกับโทรศัพท์เครื่องอื่นหลายๆ เครื่อง & ลิงก์แยกสาขา
-                    </h4>
-                    <p className="text-sm text-slate-300 mt-1 leading-relaxed">
-                      ข้อมูลในเว็บ<strong>จะไม่ถูกแก้ไขปนกันครับ!</strong> เนื่องจากระบบบันทึกใน Local Storage ของแต่ละเครื่องอิสระ และสามารถสร้างลิงก์แยกสาขาได้ตามต้องการ:
-                    </p>
-                  </div>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-2xl border border-blue-200 text-xs space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                  <Sparkles className="w-4 h-4 text-blue-600" />
+                  <span>สร้างลิงก์สาขาใหม่และบันทึกประวัติเข้าระบบ</span>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-                  <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
-                    <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-xs sm:text-sm">
-                      <CheckCircle2 className="w-4 h-4 shrink-0" />
-                      <span>ทดลองใช้ฟรี 7 วัน</span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      ทุกลิงก์สาขาที่สร้างใหม่จะได้รับสิทธิ์ทดลองใช้งานฟรี 7 วันทันที
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
-                    <div className="flex items-center space-x-2 text-blue-400 font-semibold text-xs sm:text-sm">
-                      <Layers className="w-4 h-4 shrink-0" />
-                      <span>แยกฐานข้อมูล 100%</span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      ข้อมูลบิลงานซ่อมและการตั้งค่าแยกตามรหัสสาขา ไม่ทับซ้อนกันแน่นอน
-                    </p>
-                  </div>
-
-                  <div className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
-                    <div className="flex items-center space-x-2 text-amber-400 font-semibold text-xs sm:text-sm">
-                      <EyeOff className="w-4 h-4 shrink-0" />
-                      <span>ซ่อนเมนูแอดมิน</span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      ลิงก์สาขาจะมองไม่เห็นเมนูต่ออายุ, เมนูติดตั้งมือถือ และปุ่มโค้ด
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Branch Link Generator */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                    <Share2 className="w-4 h-4 text-blue-600" />
-                    <span>สร้างลิงก์สาขาใหม่ พร้อมกำหนดอายุการใช้งาน (ตามสั่งข้อ 5)</span>
-                  </h4>
-                  <span className="text-[11px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-md">
-                    กำหนดอายุได้อิสระ
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">
-                  ระบุชื่อสาขาและเลือกระยะเวลาใช้งาน (รายวัน, 7 วัน, 30 วัน, 90 วัน, 180 วัน, 360 วัน หรือตลอดชีพ) เพื่อสร้างลิงก์เฉพาะพร้อมนับถอยหลัง
+                <p className="text-slate-600">
+                  กรอกข้อมูลร้าน กำหนดชื่อผู้ใช้ และรหัสผ่านล็อกอินเริ่มต้น เพื่อสร้างลิงก์เฉพาะให้สาขา
                 </p>
-
-                <div className="space-y-3.5">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      1. ระบุรหัสสาขา หรือชื่อเครื่อง (ภาษาอังกฤษ/ตัวเลข):
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={customBranchName}
-                        onChange={(e) => setCustomBranchName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
-                        placeholder="เช่น branch-01, shop-udon, branch-02"
-                        className="flex-1 px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  {/* 5) Duration Selector */}
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
-                      <span>2. กำหนดระยะเวลาใช้งานของลิงก์สาขา:</span>
-                      <span className="text-blue-600 font-bold">
-                        {effectiveBranchDays === 'lifetime' 
-                          ? '👑 ใช้งานตลอดชีพ' 
-                          : `อายุใช้งาน: ${effectiveBranchDays} วัน`}
-                      </span>
-                    </label>
-
-                    {/* Quick Presets Buttons: 1วัน, 7วัน, 30วัน, 90วัน, 180วัน, 360วัน, ตลอดชีพ */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {[
-                        { label: '1 วัน (ทดสอบ)', value: 1 },
-                        { label: '7 วัน', value: 7 },
-                        { label: '30 วัน (1 เดือน)', value: 30 },
-                        { label: '90 วัน (3 เดือน)', value: 90 },
-                        { label: '180 วัน (6 เดือน)', value: 180 },
-                        { label: '360 วัน (1 ปี)', value: 360 },
-                        { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
-                        { label: '✏️ กำหนดเอง', value: 'custom' as const },
-                      ].map((preset) => {
-                        const isSelected = branchDurationChoice === preset.value;
-                        return (
-                          <button
-                            key={preset.label}
-                            type="button"
-                            onClick={() => {
-                              setBranchDurationChoice(preset.value);
-                            }}
-                            className={`py-2 px-2.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                              isSelected
-                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-300'
-                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3.5 h-3.5" />}
-                            <span>{preset.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Custom Days Input if "กำหนดเอง" selected */}
-                    {branchDurationChoice === 'custom' && (
-                      <div className="mt-2.5 p-3 bg-blue-50/80 rounded-xl border border-blue-200 flex items-center gap-3 animate-in fade-in">
-                        <label className="text-xs font-bold text-blue-900 whitespace-nowrap">
-                          ระบุจำนวนวันใช้งาน:
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          max="3650"
-                          value={customDaysInput}
-                          onChange={(e) => setCustomDaysInput(e.target.value)}
-                          placeholder="เช่น 14, 45, 60"
-                          className="w-32 px-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-bold text-center font-mono focus:ring-2 focus:ring-blue-500"
-                        />
-                        <span className="text-xs text-blue-700 font-semibold">วัน</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Generated Link Display with Save button */}
-                  <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-3">
-                    <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider flex items-center justify-between">
-                      <span>ลิงก์สำหรับส่งให้เครื่องสาขา:</span>
-                      <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        {effectiveBranchDays === 'lifetime' ? '👑 สิทธิ์ตลอดชีพ' : `✨ อายุ ${effectiveBranchDays} วัน`}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
-                      <span className="text-xs font-mono text-slate-700 truncate flex-1 select-all font-medium">
-                        {currentBranchUrl}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(currentBranchUrl, setCopiedBranchUrl)}
-                        className="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition shrink-0 flex items-center space-x-1 cursor-pointer"
-                      >
-                        {copiedBranchUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                        <span>{copiedBranchUrl ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
-                      </button>
-                    </div>
-
-                    {/* Action button to save to branch list */}
-                    <button
-                      type="button"
-                      onClick={handleCreateAndSaveBranch}
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>บันทึกและคัดลอกลิงก์สาขานี้ ({effectiveBranchDays === 'lifetime' ? 'ตลอดชีพ' : `${effectiveBranchDays} วัน`})</span>
-                    </button>
-                  </div>
-                </div>
               </div>
 
-              {/* 5) Table/List of Created Branch Links with Live Countdown */}
-              {storedBranches.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3 shadow-2xs">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <h4 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-blue-600" />
-                      <span>รายการลิงก์สาขาที่สร้างไว้ พร้อมนับถอยหลังอายุใช้งาน ({storedBranches.length} สาขา)</span>
-                    </h4>
-                    <span className="text-[11px] text-slate-400">อัพเดตเรียลไทม์</span>
+              <form onSubmit={handleCreateBranchSubmit} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ชื่อร้าน / ชื่อสาขา *
+                    </label>
+                    <input
+                      type="text"
+                      value={createName}
+                      onChange={(e) => setCreateName(e.target.value)}
+                      placeholder="เช่น สาขาขอนแก่น, ร้านเพื่อนช่าง"
+                      required
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
                   </div>
 
-                  <div className="space-y-2.5">
-                    {storedBranches.map((br) => {
-                      const cd = getBranchCountdownInfo(br);
-                      const isItemCopied = copiedItemUrl === br.url;
-                      return (
-                        <div
-                          key={br.tenantCode}
-                          className="p-3 bg-slate-50/80 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 hover:bg-slate-50 transition"
-                        >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-xs text-slate-900 font-mono bg-white px-2 py-0.5 rounded border border-slate-200">
-                                {br.tenantCode}
-                              </span>
-                              <span className={`text-[11px] px-2 py-0.5 rounded ${cd.badgeClass}`}>
-                                {cd.text}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 truncate max-w-md font-mono">
-                              {br.url}
-                            </div>
-                          </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ชื่อผู้ใช้สาขา (Username สำหรับ Login) *
+                    </label>
+                    <input
+                      type="text"
+                      value={createUsername}
+                      onChange={(e) => setCreateUsername(e.target.value)}
+                      placeholder="เช่น branch-01, branch-udon"
+                      required
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
 
-                          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                handleCopy(br.url, () => {
-                                  setCopiedItemUrl(br.url);
-                                  setTimeout(() => setCopiedItemUrl(null), 2000);
-                                });
-                              }}
-                              className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
-                            >
-                              {isItemCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                              <span>{isItemCopied ? 'คัดลอกแล้ว' : 'คัดลอกลิงก์'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteBranch(br.tenantCode)}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                              title="ลบสาขานี้"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      กำหนดรหัสผ่าน PIN สำหรับ user ตอนเอาไป Login *
+                    </label>
+                    <input
+                      type="password"
+                      value={createPin}
+                      onChange={(e) => setCreatePin(e.target.value)}
+                      placeholder="กำหนดรหัส PIN เช่น 1234 หรือ 9876"
+                      required
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono font-bold focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none tracking-widest"
+                    />
+                    <div className="text-[10px] text-amber-700 mt-1">
+                      * รหัสนี้จะถูกบันทึกเป็น "รหัสเริ่มต้น" หาก user เปลี่ยนรหัสใหม่แล้วลืม สามารถใช้รหัสเริ่มต้นนี้เข้าสู่ระบบได้เสมอ
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      เบอร์โทรติดต่อสาขา (ถ้ามี)
+                    </label>
+                    <input
+                      type="text"
+                      value={createPhone}
+                      onChange={(e) => setCreatePhone(e.target.value)}
+                      placeholder="เช่น 081-xxx-xxxx"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Duration Selector */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    เลือกระยะเวลาการใช้งาน (วันหมดอายุ)
+                  </label>
+                  <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
+                    {[
+                      { label: '7 วัน (ทดลอง)', value: 7 },
+                      { label: '30 วัน (1 เดือน)', value: 30 },
+                      { label: '90 วัน (3 เดือน)', value: 90 },
+                      { label: '180 วัน (6 เดือน)', value: 180 },
+                      { label: '360 วัน (1 ปี)', value: 360 },
+                      { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
+                      { label: 'กำหนดเอง', value: 'custom' as const },
+                    ].map((preset) => {
+                      const isSelected = createDurationChoice === preset.value;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setCreateDurationChoice(preset.value)}
+                          className={`px-2 py-2 rounded-xl text-xs font-bold transition border cursor-pointer text-center ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
                       );
                     })}
                   </div>
+
+                  {createDurationChoice === 'custom' && (
+                    <div className="mt-2.5 flex items-center gap-2 max-w-xs">
+                      <span className="text-xs text-slate-600">ระบุจำนวนวัน:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="3650"
+                        value={createCustomDays}
+                        onChange={(e) => setCreateCustomDays(e.target.value)}
+                        className="w-24 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                      <span className="text-xs text-slate-600">วัน</span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    หมายเหตุเพิ่มเติม (ถ้ามี)
+                  </label>
+                  <input
+                    type="text"
+                    value={createNotes}
+                    onChange={(e) => setCreateNotes(e.target.value)}
+                    placeholder="เช่น ช่างบอยขอนแก่น, สัญญา 1 ปี, โอนเงินแล้ว"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end pt-2">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition active:scale-95 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>บันทึกและสร้างลิงก์สาขา</span>
+                  </button>
+                </div>
+              </form>
+
+              {/* Creation Result Box */}
+              {createSuccessMsg && createdBranchItem && (
+                <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl space-y-3 animate-in zoom-in-95">
+                  <div className="flex items-center gap-2 text-emerald-800 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{createSuccessMsg}</span>
+                  </div>
+
+                  <div className="bg-white p-3 rounded-xl border border-emerald-200 text-xs space-y-1.5">
+                    <div className="font-bold text-slate-800">
+                      🏪 สาขา: {createdBranchItem.name} ({createdBranchItem.username})
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-600">
+                      <span>รหัสผ่านเริ่มต้นสำหรับ Login:</span>
+                      <span className="font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                        {createdBranchItem.initialPin || '1234'}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono break-all">
+                      {createdBranchItem.url}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(createdBranchItem.url, setCopiedCreateUrl)}
+                      className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedCreateUrl ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedCreateUrl ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกลิงก์สาขา'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(getBranchShareMessage(createdBranchItem), setCopiedCreateLineMsg)}
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedCreateLineMsg ? <Check className="w-3.5 h-3.5" /> : <MessageCircle className="w-3.5 h-3.5" />}
+                      <span>{copiedCreateLineMsg ? 'คัดลอกข้อความ LINE แล้ว' : 'คัดลอกข้อความส่ง LINE'}</span>
+                    </button>
+
+                    <a
+                      href={createdBranchItem.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>เปิดทดสอบ</span>
+                    </a>
+                  </div>
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Security Protection Notice */}
-              <div className="p-4 rounded-xl bg-slate-100 border border-slate-300 text-xs text-slate-700 leading-relaxed space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-slate-900">
-                  <ShieldAlert className="w-4 h-4 text-blue-600" />
-                  <span>การรับประกันความปลอดภัยสำหรับผู้ใช้งานลิงค์สาขา:</span>
+          {/* TAB 3: RENEW BRANCH (Requirement 2: 2.1 & 2.2) */}
+          {activeTab === 'renew_branch' && !isBranchUser() && (
+            <div className="space-y-6">
+              
+              {/* 2.1 Select / Search branch to renew */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-blue-600" />
+                    <span>2.1 ใส่ลิงก์สาขา หรือเลือกสาขาที่ต้องการต่ออายุ</span>
+                  </h4>
+                  <span className="text-[11px] text-slate-400">
+                    มีสาขาในระบบ {storedBranches.length} สาขา
+                  </span>
                 </div>
-                <ul className="list-disc list-inside space-y-0.5 text-slate-600 text-[11px] pl-1">
-                  <li><strong>เมนูต่ออายุการใช้งาน:</strong> ถูกซ่อนไว้ จะแสดงเฉพาะหน้าต่างแจ้งเตือนเมื่อหมดอายุเพื่อติดต่อแอดมิน</li>
-                  <li><strong>เมนูติดตั้งลงมือถือ:</strong> ถูกซ่อนไว้ เพื่อความกระชับของหน้าจอ</li>
-                  <li><strong>ปุ่ม Source Code และดาวน์โหลดโค้ด:</strong> ถูกซ่อนไว้ ป้องกันการเข้าถึงโค้ดโปรเจกต์</li>
-                </ul>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      เลือกจากรายชื่อสาขาที่มีอยู่:
+                    </label>
+                    <select
+                      value={selectedBranchId}
+                      onChange={(e) => {
+                        setSelectedBranchId(e.target.value);
+                        setBranchSearchInput('');
+                      }}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    >
+                      {storedBranches.length === 0 && (
+                        <option value="">(ยังไม่มีประวัติสาขา กรุณาสร้างลิงก์สาขาก่อน)</option>
+                      )}
+                      {storedBranches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.username || b.tenantCode}) - {b.daysGranted === 'lifetime' ? 'ตลอดชีพ' : formatBranchDateThai(b.expiresAt)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      หรือ วางลิงก์สาขา / รหัสสาขา เพื่อค้นหา:
+                    </label>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        value={branchSearchInput}
+                        onChange={(e) => setBranchSearchInput(e.target.value)}
+                        placeholder="วางลิงก์สาขา เช่น http://.../?tenant=branch-01 หรือพิมพ์ชื่อ"
+                        className="w-full pl-8 pr-3 py-2 bg-white border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Selected Branch Info Card */}
+                {resolvedBranch ? (
+                  <div className="mt-2 p-3.5 bg-blue-50/60 border border-blue-200 rounded-xl text-xs space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="font-bold text-blue-950 flex items-center gap-1.5">
+                        <Building2 className="w-4 h-4 text-blue-600" />
+                        <span>สาขาที่เลือก: {resolvedBranch.name}</span>
+                        <span className="text-[10px] font-mono bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded border border-blue-300">
+                          {resolvedBranch.username || resolvedBranch.tenantCode}
+                        </span>
+                      </div>
+                      <div className="text-[11px] font-semibold text-slate-700">
+                        วันหมดอายุปัจจุบัน: <strong>{formatBranchDateThai(resolvedBranch.expiresAt)}</strong>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-blue-100">
+                      {/* Initial PIN (for recovery) */}
+                      <div className="flex items-center gap-1 text-[11px] bg-white px-2 py-1 rounded border border-amber-300">
+                        <span className="text-amber-800 font-bold">รหัสเริ่มต้น (ใช้กู้คืนเมื่อลืมรหัส):</span>
+                        <span className="font-mono font-black text-amber-900 tracking-wider">
+                          {resolvedBranch.initialPin || resolvedBranch.branchPin || '1234'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(resolvedBranch.initialPin || resolvedBranch.branchPin || '1234', setCopiedInitPin)}
+                          className="ml-1 text-amber-700 hover:text-amber-950 cursor-pointer"
+                          title="คัดลอกรหัสเริ่มต้น"
+                        >
+                          {copiedInitPin ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+
+                      {/* Current PIN */}
+                      {resolvedBranch.branchPin && resolvedBranch.branchPin !== (resolvedBranch.initialPin || '1234') && (
+                        <div className="text-[11px] text-slate-600 bg-white px-2 py-1 rounded border border-slate-200">
+                          <span>รหัสใหม่ปัจจุบัน:</span>
+                          <span className="font-mono font-bold text-slate-800 ml-1">
+                            {resolvedBranch.branchPin}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-amber-50 text-amber-800 border border-amber-200 rounded-xl text-xs">
+                    ไม่พบข้อมูลสาขาที่ค้นหา กรุณาเลือกจากรายการหรือตรวจสอบลิงก์สาขา
+                  </div>
+                )}
+              </div>
+
+              {/* 2.2 Configure renewal code & duration for user */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                  <Key className="w-4 h-4 text-blue-600" />
+                  <span>2.2 กำหนดรหัสต่ออายุ เพื่อส่งให้ user ไปกรอก</span>
+                </h4>
+
+                {/* Duration presets */}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    เลือกระยะเวลาที่ต้องการต่ออายุ:
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
+                    {[
+                      { label: '+30 วัน', value: 30 },
+                      { label: '+90 วัน (3 ด.)', value: 90 },
+                      { label: '+180 วัน (6 ด.)', value: 180 },
+                      { label: '+360 วัน (1 ปี)', value: 360 },
+                      { label: '👑 ตลอดชีพ', value: 'lifetime' as const },
+                      { label: 'กำหนดเอง', value: 'custom' as const },
+                    ].map((preset) => {
+                      const isSelected = renewDurationChoice === preset.value;
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setRenewDurationChoice(preset.value)}
+                          className={`px-2 py-2 rounded-xl text-xs font-bold transition border cursor-pointer text-center ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {renewDurationChoice === 'custom' && (
+                    <div className="mt-2.5 flex items-center gap-2 max-w-xs">
+                      <span className="text-xs text-slate-600">ระบุจำนวนวัน:</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="3650"
+                        value={renewCustomDays}
+                        onChange={(e) => setRenewCustomDays(e.target.value)}
+                        className="w-24 px-3 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                      />
+                      <span className="text-xs text-slate-600">วัน</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Renewal code field */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-semibold text-slate-700">
+                      รหัสต่ออายุ (Activation Code ที่จะส่งให้ user):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateBranchCode}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>สร้างรหัสต่ออายุอัตโนมัติ</span>
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customRenewalCode}
+                      onChange={(e) => setCustomRenewalCode(e.target.value.toUpperCase())}
+                      placeholder="เช่น RP-BRANCH01-30D-XXXX หรือพิมพ์เอง"
+                      className="flex-1 px-3.5 py-2.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl uppercase tracking-wider focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!customRenewalCode.trim()) {
+                          handleGenerateBranchCode();
+                        } else if (resolvedBranch) {
+                          registerRenewalCode({
+                            code: customRenewalCode.trim().toUpperCase(),
+                            daysAdded: effectiveRenewDays,
+                            planName: effectiveRenewDays === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ ${effectiveRenewDays} วัน`,
+                            targetTenantId: resolvedBranch.tenantCode,
+                          });
+                          handleCopy(customRenewalCode.trim().toUpperCase(), setCopiedRenewalCode);
+                        }
+                      }}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                    >
+                      {copiedRenewalCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedRenewalCode ? 'คัดลอกแล้ว' : 'บันทึก & คัดลอกรหัส'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Instant Renew Action Button */}
+                <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="text-xs text-indigo-900">
+                    <span className="font-bold">⚡ หรือต่ออายุให้สาขานี้โดยตรงทันที:</span>
+                    <span className="text-[11px] text-slate-500 block">
+                      แอดมินสามารถกดปุ่มนี้เพื่อขยายวันใช้งานให้สาขานี้ทันทีในฐานข้อมูล ไม่ต้องให้ user กรอกรหัสเอง
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleInstantRenewBranch}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shrink-0 active:scale-95 shadow-xs"
+                  >
+                    ต่ออายุให้สาขานี้ทันที
+                  </button>
+                </div>
+
+                {renewResultMsg && (
+                  <div className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                    renewResultMsg.type === 'success' 
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' 
+                      : 'bg-rose-50 text-rose-800 border border-rose-300'
+                  }`}>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>{renewResultMsg.text}</span>
+                  </div>
+                )}
+
+                {/* LINE message box for sending to user */}
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <MessageCircle className="w-4 h-4 text-emerald-600" />
+                      <span>ข้อความแจ้งเตือนสำหรับส่งให้ User ทาง LINE:</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(branchLineMessage, setCopiedLineMessage)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer active:scale-95"
+                    >
+                      {copiedLineMessage ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedLineMessage ? 'คัดลอกข้อความแล้ว' : 'คัดลอกข้อความส่ง LINE'}</span>
+                    </button>
+                  </div>
+
+                  <textarea
+                    rows={7}
+                    readOnly
+                    value={branchLineMessage}
+                    className="w-full p-3 bg-white border border-slate-300 rounded-xl text-xs font-mono text-slate-700 leading-relaxed outline-none"
+                  />
+                </div>
+
               </div>
 
             </div>
           )}
 
-          {/* TAB 3: ADMIN CONTROL PANEL */}
-          {activeTab === 'admin' && (
+          {/* TAB 4: ADMIN SETTINGS & PIN (Requirement 4: Admin PIN RepairPro0992256601) */}
+          {activeTab === 'admin' && !isBranchUser() && (
             <div className="space-y-6">
-              
               {!isAdminUnlocked ? (
-                /* Admin PIN Lock Screen */
+                /* Admin PIN Lock Screen (masked password input) */
                 <div className="max-w-md mx-auto text-center py-6 space-y-4">
                   <div className="w-14 h-14 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center mx-auto text-blue-600">
                     <Lock className="w-7 h-7" />
@@ -859,7 +1059,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                   <div>
                     <h4 className="text-lg font-bold text-slate-900">แผงควบคุมผู้ดูแล (Admin Control)</h4>
                     <p className="text-xs text-slate-500 mt-1">
-                      กรุณากรอกรหัส PIN ผู้ดูแลเพื่อสร้างรหัสต่ออายุและกำหนดวันหมดอายุ
+                      กรุณากรอกรหัส PIN ผู้ดูแลเพื่อเข้าสู่โหมดตั้งค่าขั้นสูง
                     </p>
                   </div>
 
@@ -868,7 +1068,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                       type="password"
                       value={adminPinInput}
                       onChange={(e) => setAdminPinInput(e.target.value)}
-                      placeholder="กรอกรหัส PIN (เริ่มต้น: 1234)"
+                      placeholder="กรอกรหัส PIN ผู้ดูแล"
                       className="w-full text-center px-4 py-2.5 text-base font-mono tracking-widest bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
                     />
 
@@ -883,7 +1083,7 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                       เข้าสู่ระบบผู้ดูแล
                     </button>
                     <p className="text-[11px] text-slate-400">
-                      * รหัสผ่านผู้ดูแลเริ่มต้นคือ <strong>1234</strong>
+                      * รหัสผ่านผู้ดูแลเริ่มต้นคือ <strong>{DEFAULT_ADMIN_PIN}</strong>
                     </p>
                   </form>
                 </div>
@@ -904,79 +1104,11 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                     </button>
                   </div>
 
-                  {/* 1. Generator of Activation Codes: 30, 90, 180, 360 วัน, ตลอดชีพ */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
-                    <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                      <Sparkles className="w-4 h-4 text-blue-600" />
-                      <span>สร้างรหัสต่ออายุให้ลูกค้า (Generate Activation Code)</span>
-                    </h4>
-                    <p className="text-xs text-slate-500">
-                      กดปุ่มเพื่อสร้างรหัสส่งให้ลูกค้าหรือโทรศัพท์สาขา นำไปกรอกเพื่อเพิ่มวันใช้งาน
-                    </p>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateCode(30)}
-                        className="px-3 py-2 bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 rounded-xl text-xs font-semibold transition cursor-pointer"
-                      >
-                        + 30 วัน
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateCode(90)}
-                        className="px-3 py-2 bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 rounded-xl text-xs font-semibold transition cursor-pointer"
-                      >
-                        + 90 วัน
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateCode(180)}
-                        className="px-3 py-2 bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 rounded-xl text-xs font-semibold transition cursor-pointer"
-                      >
-                        + 180 วัน
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateCode(360)}
-                        className="px-3 py-2 bg-white border border-slate-300 hover:border-blue-500 hover:text-blue-600 rounded-xl text-xs font-semibold transition cursor-pointer"
-                      >
-                        + 360 วัน
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleGenerateCode('lifetime')}
-                        className="px-3 py-2 bg-yellow-50 border border-yellow-300 hover:bg-yellow-100 text-yellow-800 rounded-xl text-xs font-bold transition cursor-pointer col-span-2 sm:col-span-1"
-                      >
-                        👑 ตลอดชีพ
-                      </button>
-                    </div>
-
-                    {generatedCode && (
-                      <div className="mt-3 p-3.5 bg-white rounded-xl border border-blue-200 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-400 uppercase font-semibold">รหัสต่ออายุที่สร้างขึ้น:</div>
-                          <div className="text-base font-mono font-bold text-blue-700 tracking-wider">
-                            {generatedCode}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(generatedCode, setCopiedGeneratedCode)}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition flex items-center space-x-1 cursor-pointer active:scale-95"
-                        >
-                          {copiedGeneratedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedGeneratedCode ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 2. Direct Expiry Date Configuration */}
+                  {/* Direct Expiry Date Configuration */}
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                     <h4 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
                       <Calendar className="w-4 h-4 text-blue-600" />
-                      <span>กำหนดวันหมดอายุของเครื่องนี้โดยตรง</span>
+                      <span>กำหนดวันหมดอายุของเครื่องแอดมินนี้โดยตรง</span>
                     </h4>
 
                     <div className="space-y-3">
@@ -1006,10 +1138,10 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
                     </div>
                   </div>
 
-                  {/* 3. Contact Info and PIN Settings */}
+                  {/* Contact Info and PIN Settings */}
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
                     <h4 className="text-sm font-bold text-slate-900">
-                      ตั้งค่าข้อมูลติดต่อผู้ดูแล & รหัส PIN
+                      ตั้งค่าข้อมูลติดต่อผู้ดูแล & รหัส PIN แอดมิน
                     </h4>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1054,15 +1186,18 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
 
                       <div>
                         <label className="block text-xs font-semibold text-slate-700 mb-1">
-                          เปลี่ยนรหัส PIN ผู้ดูแล (Admin PIN):
+                          เปลี่ยนรหัส PIN แอดมิน (Admin PIN):
                         </label>
                         <input
-                          type="text"
+                          type="password"
                           value={editNewPin}
                           onChange={(e) => setEditNewPin(e.target.value)}
-                          placeholder="เช่น 1234 หรือ 9876"
-                          className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl font-mono"
+                          placeholder={`ค่าเริ่มต้น: ${DEFAULT_ADMIN_PIN}`}
+                          className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-xl font-mono tracking-widest"
                         />
+                        <span className="text-[10px] text-slate-400 mt-0.5 block">
+                          รหัสแอดมินเริ่มต้น: {DEFAULT_ADMIN_PIN}
+                        </span>
                       </div>
                     </div>
 
@@ -1086,7 +1221,6 @@ export const LicenseManagerModal: React.FC<LicenseManagerModalProps> = ({
 
                 </div>
               )}
-
             </div>
           )}
 
