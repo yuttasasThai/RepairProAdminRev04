@@ -36,11 +36,11 @@ export async function downloadProjectZip(): Promise<boolean> {
       compressionOptions: { level: 6 }
     });
 
-    // Create object URL and trigger download (Revision 05)
+    // Create object URL and trigger download (Revision 06)
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'repair-pro-source-code-rev.05.zip';
+    link.download = 'repair-pro-source-code-rev.06.zip';
     document.body.appendChild(link);
     link.click();
 
