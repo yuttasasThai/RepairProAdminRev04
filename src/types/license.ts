@@ -10,7 +10,7 @@ export interface LicenseConfig {
   contactName?: string;       // ชื่อผู้ดูแลระบบ เช่น 'ช่างหน่อยชุมแพ'
   contactPhone: string;       // เบอร์ติดต่อแจ้งต่ออายุ เช่น '099-225-6601'
   contactLineId: string;      // Line ID แจ้งต่ออายุ เช่น '@228snzee'
-  adminPin: string;           // รหัสผ่านผู้ดูแลเพื่อแก้ไข/ออกรหัสต่ออายุ (เริ่มต้น: '1234')
+  adminPin: string;           // รหัสผ่านผู้ดูแลเพื่อแก้ไข/ออกรหัสต่ออายุ (เริ่มต้น: 'RepairPro0992256601')
 }
 
 export interface LicenseStatus {
@@ -37,7 +37,8 @@ export interface BranchLinkItem {
   tenantCode: string;          // รหัส tenant เช่น 'branch-01'
   username: string;            // ชื่อผู้ใช้สำหรับล็อกอิน เช่น 'branch-01'
   name: string;                // ชื่อร้าน / สาขา เช่น 'สาขาขอนแก่น'
-  branchPin: string;           // รหัสผ่าน PIN สาขา เช่น '1234'
+  initialPin: string;          // รหัสผ่านเริ่มต้นที่แอดมินสร้างให้ตอนแรก (สำหรับกู้คืนเวลาลืมรหัส)
+  branchPin: string;           // รหัสผ่าน PIN สาขาปัจจุบัน (อาจเปลี่ยนโดย user)
   phone?: string;              // เบอร์โทรสาขา
   notes?: string;              // บันทึกเพิ่มเติม
   daysGranted: number | 'lifetime';
