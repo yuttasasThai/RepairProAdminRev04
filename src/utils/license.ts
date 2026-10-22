@@ -367,6 +367,9 @@ export interface RegisteredRenewalCode {
   planName: string;
   createdAt: string;
   targetBranch?: string;
+  used?: boolean;
+  usedAt?: string;
+  usedByTenant?: string;
 }
 
 export function getRegisteredRenewalCodes(): RegisteredRenewalCode[] {
@@ -409,6 +412,7 @@ export function registerRenewalCode(
       planName: finalPlanName,
       createdAt: new Date().toISOString(),
       targetBranch: finalTarget,
+      used: false,
     };
     const updated = [item, ...list.filter(x => x.code !== finalCode)];
     localStorage.setItem('repair_pro_registered_renewal_codes', JSON.stringify(updated));
@@ -417,13 +421,37 @@ export function registerRenewalCode(
   }
 }
 
-export function validateAndParseCode(inputCode: string): ActivationCodeResult {
+export function validateAndParseCode(inputCode: string, targetTenantId?: string): ActivationCodeResult {
   const code = inputCode.trim().toUpperCase();
+  const currentTenant = targetTenantId || getActiveTenantId();
+  const branchUser = isBranchUser() || (currentTenant && currentTenant !== 'default');
 
-  // 1. Check admin-generated / registered custom renewal codes
+  // 1. Check admin-generated / registered renewal codes from Admin
   const registered = getRegisteredRenewalCodes();
   const matchedReg = registered.find(r => r.code === code);
   if (matchedReg) {
+    if (matchedReg.used) {
+      return {
+        valid: false,
+        message: 'รหัสต่ออายุนี้ถูกใช้งานไปแล้ว ไม่สามารถนำมาใช้ซ้ำได้ กรุณาติดต่อแอดมินเพื่อขอรหัสใหม่',
+        daysAdded: 0,
+        planName: '',
+      };
+    }
+
+    if (matchedReg.targetBranch && currentTenant) {
+      const cleanTarget = matchedReg.targetBranch.trim().toLowerCase();
+      const cleanCurrent = currentTenant.trim().toLowerCase();
+      if (cleanTarget !== cleanCurrent) {
+        return {
+          valid: false,
+          message: `รหัสต่ออายุนี้ถูกกำหนดให้ใช้เฉพาะสาขา "${matchedReg.targetBranch}" เท่านั้น`,
+          daysAdded: 0,
+          planName: '',
+        };
+      }
+    }
+
     return {
       valid: true,
       message: `ต่ออายุ ${matchedReg.planName} สำเร็จ`,
@@ -432,18 +460,30 @@ export function validateAndParseCode(inputCode: string): ActivationCodeResult {
     };
   }
 
-  // 2. Standard easy master renewal codes: 30, 90, 180, 360 วัน, ตลอดชีพ
+  // 2. SECURITY FIX: If caller is a branch link / branch tenant, STRICTLY FORBID hardcoded master bypass codes!
+  // Only admin-issued registered codes or valid branch cryptographic tokens are accepted.
+  if (branchUser) {
+    // Branch tenants CANNOT self-renew with RENEW-30 or generic codes
+    return {
+      valid: false,
+      message: 'รหัสต่ออายุไม่ถูกต้อง กรุณาติดต่อแอดมินผู้ดูแล (ช่างหน่อยชุมแพ โทร 0992256601 LINE: @228snzee) เพื่อขอรับรหัสต่ออายุของสาขาท่าน',
+      daysAdded: 0,
+      planName: '',
+    };
+  }
+
+  // 3. For main admin domain only: Allow standard master renewal codes for testing / emergency admin maintenance
   if (code === 'RENEW-30' || code === 'RENEW30' || code === '30DAYS') {
-    return { valid: true, message: 'ต่ออายุ 30 วัน สำเร็จ', daysAdded: 30, planName: 'ต่ออายุ 30 วัน' };
+    return { valid: true, message: 'ต่ออายุ 30 วัน สำเร็จ (รหัสแอดมิน)', daysAdded: 30, planName: 'ต่ออายุ 30 วัน' };
   }
   if (code === 'RENEW-90' || code === 'RENEW90' || code === '90DAYS') {
-    return { valid: true, message: 'ต่ออายุ 90 วัน สำเร็จ', daysAdded: 90, planName: 'ต่ออายุ 90 วัน (3 เดือน)' };
+    return { valid: true, message: 'ต่ออายุ 90 วัน สำเร็จ (รหัสแอดมิน)', daysAdded: 90, planName: 'ต่ออายุ 90 วัน (3 เดือน)' };
   }
   if (code === 'RENEW-180' || code === 'RENEW180' || code === '180DAYS' || code === 'HALF-YEAR') {
-    return { valid: true, message: 'ต่ออายุ 180 วัน (6 เดือน) สำเร็จ', daysAdded: 180, planName: 'ต่ออายุ 180 วัน (6 เดือน)' };
+    return { valid: true, message: 'ต่ออายุ 180 วัน (6 เดือน) สำเร็จ (รหัสแอดมิน)', daysAdded: 180, planName: 'ต่ออายุ 180 วัน (6 เดือน)' };
   }
   if (code === 'RENEW-360' || code === 'RENEW360' || code === '360DAYS' || code === 'RENEW-365' || code === 'RENEW365' || code === 'YEAR-2026') {
-    return { valid: true, message: 'ต่ออายุ 360 วัน (1 ปี) สำเร็จ', daysAdded: 360, planName: 'ต่ออายุ 360 วัน (1 ปี)' };
+    return { valid: true, message: 'ต่ออายุ 360 วัน (1 ปี) สำเร็จ (รหัสแอดมิน)', daysAdded: 360, planName: 'ต่ออายุ 360 วัน (1 ปี)' };
   }
   if (code === 'LIFETIME' || code === 'LIFETIME-PRO' || code === 'VIP-LIFETIME' || code === 'PRO-LIFETIME') {
     return { valid: true, message: 'ปลดล็อคการใช้งานตลอดชีพสำเร็จ (ไม่มีวันหมดอายุ)', daysAdded: 'lifetime', planName: 'ตลอดชีพ (Lifetime)' };
@@ -508,13 +548,28 @@ export function applyRenewalCode(
   inputCode: string, 
   currentConfig: LicenseConfig
 ): { success: boolean; message: string; updatedConfig: LicenseConfig } {
-  const result = validateAndParseCode(inputCode);
+  const result = validateAndParseCode(inputCode, currentConfig.tenantId);
   if (!result.valid) {
     return {
       success: false,
       message: result.message,
       updatedConfig: currentConfig,
     };
+  }
+
+  // Mark registered renewal code as used (single-use per code)
+  try {
+    const regList = getRegisteredRenewalCodes();
+    const cleanCode = inputCode.trim().toUpperCase();
+    const regIdx = regList.findIndex(r => r.code === cleanCode);
+    if (regIdx !== -1) {
+      regList[regIdx].used = true;
+      regList[regIdx].usedAt = new Date().toISOString();
+      regList[regIdx].usedByTenant = currentConfig.tenantId;
+      localStorage.setItem('repair_pro_registered_renewal_codes', JSON.stringify(regList));
+    }
+  } catch (e) {
+    console.error('Error updating registered renewal codes:', e);
   }
 
   const now = new Date();
@@ -558,6 +613,42 @@ export function applyRenewalCode(
   };
 
   saveStoredLicense(updatedConfig);
+
+  // Sync to branch history in local storage if this tenant exists
+  try {
+    if (currentConfig.tenantId) {
+      const branches = getStoredBranches();
+      const bIdx = branches.findIndex(b => b.tenantCode === currentConfig.tenantId);
+      if (bIdx !== -1) {
+        const branch = { ...branches[bIdx] };
+        branch.expiresAt = newExpiresAt;
+        branch.daysGranted = result.daysAdded === 'lifetime' 
+          ? 'lifetime' 
+          : (typeof branch.daysGranted === 'number' ? branch.daysGranted + result.daysAdded : result.daysAdded);
+        branch.renewals = [
+          {
+            renewedAt: new Date().toISOString(),
+            daysAdded: result.daysAdded,
+            previousExpiresAt: branches[bIdx].expiresAt,
+            newExpiresAt,
+            note: `เติมรหัสต่ออายุผ่านสาขา (${result.planName})`,
+          },
+          ...(branch.renewals || [])
+        ];
+        branch.url = buildBranchUrl(branch.tenantCode, branch.daysGranted, {
+          username: branch.username,
+          pin: branch.branchPin,
+          expiresAt: newExpiresAt,
+          shopName: branch.name,
+        });
+        branches[bIdx] = branch;
+        localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(branches));
+      }
+    }
+  } catch (err) {
+    console.error('Error syncing branch record from renewal:', err);
+  }
+
   return {
     success: true,
     message: result.message,
@@ -715,7 +806,7 @@ export function deleteStoredBranch(tenantCodeOrId: string): BranchLinkItem[] {
 }
 
 /**
- * ต่ออายุให้ลิงก์สาขาในระบบทันที
+ * ต่ออายุ หรือ ปรับลดอายุให้ลิงก์สาขาในระบบทันที (รองรับทั้ง + เพิ่มวัน และ - ลดวัน)
  */
 export function renewStoredBranch(
   tenantCodeOrId: string,
@@ -733,11 +824,27 @@ export function renewStoredBranch(
     const prevExpires = branch.expiresAt;
     let newExpiresAt: string | null = null;
     let newDaysGranted: number | 'lifetime' = daysToAdd;
+    const isReduction = typeof daysToAdd === 'number' && daysToAdd < 0;
 
     if (daysToAdd === 'lifetime') {
       newExpiresAt = null;
       newDaysGranted = 'lifetime';
+    } else if (isReduction) {
+      // ลดอายุการใช้งาน
+      const now = Date.now();
+      let baseTime = now;
+      if (branch.expiresAt) {
+        baseTime = new Date(branch.expiresAt).getTime();
+      } else {
+        // จากตลอดชีพ เปลี่ยนเป็นกำหนดวันหมดอายุ โดยหักลบจาก 1 ปีนับจากนี้
+        baseTime = now + 365 * 24 * 60 * 60 * 1000;
+      }
+      const newTime = baseTime + daysToAdd * 24 * 60 * 60 * 1000;
+      newExpiresAt = new Date(newTime).toISOString();
+      const currentGranted = typeof branch.daysGranted === 'number' ? branch.daysGranted : 365;
+      newDaysGranted = Math.max(0, currentGranted + daysToAdd);
     } else {
+      // เพิ่มอายุการใช้งาน (+)
       const now = Date.now();
       let baseTime = now;
       if (branch.expiresAt) {
@@ -750,12 +857,16 @@ export function renewStoredBranch(
       newDaysGranted = typeof branch.daysGranted === 'number' ? branch.daysGranted + daysToAdd : daysToAdd;
     }
 
+    const defaultNote = daysToAdd === 'lifetime'
+      ? 'ต่ออายุตลอดชีพ'
+      : (isReduction ? `ลดอายุการใช้งาน ${Math.abs(daysToAdd)} วัน` : `ต่ออายุเพิ่ม +${daysToAdd} วัน`);
+
     const renewalEvent: BranchRenewalEvent = {
       renewedAt: new Date().toISOString(),
       daysAdded: daysToAdd,
       previousExpiresAt: prevExpires,
       newExpiresAt,
-      note: note || (daysToAdd === 'lifetime' ? 'ต่ออายุตลอดชีพ' : `ต่ออายุเพิ่ม ${daysToAdd} วัน`),
+      note: note || defaultNote,
     };
 
     branch.expiresAt = newExpiresAt;
@@ -779,8 +890,8 @@ export function renewStoredBranch(
         const updatedLic: LicenseConfig = {
           ...currentLic,
           expiresAt: newExpiresAt,
-          planType: daysToAdd === 'lifetime' ? 'lifetime' : (daysToAdd >= 360 ? 'annual' : 'subscription'),
-          planName: daysToAdd === 'lifetime' ? 'ตลอดชีพ' : `ต่ออายุ (${daysToAdd} วัน)`,
+          planType: daysToAdd === 'lifetime' ? 'lifetime' : (daysToAdd >= 360 ? 'annual' : 'monthly'),
+          planName: daysToAdd === 'lifetime' ? 'ตลอดชีพ' : (isReduction ? `ปรับลดเวลา (${daysToAdd} วัน)` : `ต่ออายุ (+${daysToAdd} วัน)`),
         };
         saveStoredLicense(updatedLic);
       }
@@ -788,9 +899,15 @@ export function renewStoredBranch(
       // ignore
     }
 
+    const resultMessage = daysToAdd === 'lifetime'
+      ? `เปลี่ยนสถานะสาขา "${branch.name}" เป็นตลอดชีพเรียบร้อยแล้ว`
+      : (isReduction 
+          ? `ลดอายุการใช้งานสาขา "${branch.name}" ลง ${Math.abs(daysToAdd)} วัน เรียบร้อยแล้ว`
+          : `ต่ออายุสาขา "${branch.name}" เพิ่ม +${daysToAdd} วัน เรียบร้อยแล้ว`);
+
     return {
       success: true,
-      message: daysToAdd === 'lifetime' ? 'ต่ออายุการใช้งานตลอดชีพเรียบร้อย' : `ต่ออายุเพิ่มอีก ${daysToAdd} วัน เรียบร้อย`,
+      message: resultMessage,
       updatedBranch: branch,
       updatedBranches: list,
     };
@@ -798,6 +915,17 @@ export function renewStoredBranch(
     console.error('Error renewing branch:', err);
     return { success: false, message: 'เกิดข้อผิดพลาดในการต่ออายุ', updatedBranches: getStoredBranches() };
   }
+}
+
+/**
+ * ปรับเพิ่มหรือลดอายุให้สาขา (Helper สำหรับเรียกใช้ทั้งบวกและลบ)
+ */
+export function adjustBranchExpiry(
+  tenantCodeOrId: string, 
+  daysDelta: number, 
+  note?: string
+) {
+  return renewStoredBranch(tenantCodeOrId, daysDelta, note);
 }
 
 /**
