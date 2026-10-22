@@ -103,16 +103,20 @@ export function saveAuthSession(session: AuthSession): void {
 }
 
 /**
- * ตรวจสอบรหัสผ่านแอดมิน (ค่าเริ่มต้น 1234 หรือจาก LicenseConfig)
+ * ตรวจสอบรหัสผ่านแอดมิน (เริ่มต้น RepairPro0992256601 หรือจาก LicenseConfig)
  */
 export function verifyAdminPin(pin: string): boolean {
   const license = getStoredLicense();
   const validPin = license.adminPin || DEFAULT_ADMIN_PIN;
-  return pin.trim() === validPin.trim();
+  const cleanPin = pin.trim();
+  return cleanPin === validPin.trim() || cleanPin === 'RepairPro0992256601' || cleanPin === DEFAULT_ADMIN_PIN;
 }
 
 /**
  * ตรวจสอบรหัสผ่านสาขา
+ * - ตรวจสอบกับรหัสผ่านปัจจุบัน (branchPin)
+ * - ตรวจสอบกับรหัสเริ่มต้นที่แอดมินสร้างให้ (initialPin) เพื่อกรณีลืมรหัสผ่านใหม่ สามารถใช้รหัสเริ่มต้นเข้าได้เสมอ
+ * - ตรวจสอบกับรหัส Master Admin Pin (RepairPro0992256601)
  */
 export function verifyBranchPin(pin: string, tenantId?: string): boolean {
   const targetTenant = tenantId || getActiveTenantId();
@@ -121,8 +125,11 @@ export function verifyBranchPin(pin: string, tenantId?: string): boolean {
   // 1. ตรวจสอบจากรายชื่อสาขาที่แอดมินสร้างไว้
   const branches = getStoredBranches();
   const matched = branches.find(b => b.tenantCode === targetTenant || b.username === targetTenant);
-  if (matched && matched.branchPin) {
-    if (cleanPin === matched.branchPin.trim()) return true;
+  if (matched) {
+    // ตรวจสอบกับรหัสผ่านปัจจุบัน (Current PIN)
+    if (matched.branchPin && cleanPin === matched.branchPin.trim()) return true;
+    // ตรวจสอบกับรหัสเริ่มต้นที่แอดมินสร้างให้ (Initial PIN) - ใช้กู้คืนกรณี user ลืมรหัสใหม่
+    if (matched.initialPin && cleanPin === matched.initialPin.trim()) return true;
   }
 
   // 2. ตรวจสอบจาก query parameter pin ถ้ามี
@@ -135,10 +142,54 @@ export function verifyBranchPin(pin: string, tenantId?: string): boolean {
     // ignore
   }
 
-  // 3. ตรวจสอบกับ Master Admin Pin หรือค่าเริ่มต้น 1234
+  // 3. ตรวจสอบกับ Master Admin Pin (RepairPro0992256601) หรือค่าเริ่มต้น
   const license = getStoredLicense();
   const validPin = license.adminPin || DEFAULT_ADMIN_PIN;
-  return cleanPin === validPin.trim() || cleanPin === '1234';
+  return cleanPin === validPin.trim() || cleanPin === 'RepairPro0992256601' || cleanPin === DEFAULT_ADMIN_PIN || cleanPin === '1234';
+}
+
+/**
+ * เปลี่ยนรหัสผ่านสาขา (User กำหนดรหัสผ่านใหม่)
+ * โดยยังคงรหัสเริ่มต้น (initialPin) ไว้ในประวัติเพื่อให้ติดต่อขอแอดมินและนำมาใช้ Login ได้เสมอ
+ */
+export function changeBranchPassword(
+  tenantId: string,
+  currentOrInitialPin: string,
+  newPin: string
+): { success: boolean; message: string } {
+  const cleanTenant = tenantId.trim().toLowerCase().replace(/[^a-z0-9_\u0E00-\u0E7F-]/g, '');
+  const cleanNewPin = newPin.trim();
+
+  if (!cleanNewPin) {
+    return { success: false, message: 'กรุณากรอกรหัสผ่านใหม่' };
+  }
+  if (cleanNewPin.length < 3) {
+    return { success: false, message: 'รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 3 ตัวอักษร' };
+  }
+
+  if (!verifyBranchPin(currentOrInitialPin, cleanTenant)) {
+    return { success: false, message: 'รหัสผ่านเดิมหรือรหัสเริ่มต้นไม่ถูกต้อง' };
+  }
+
+  const branches = getStoredBranches();
+  const matched = branches.find(b => b.tenantCode === cleanTenant || b.username === cleanTenant);
+
+  if (matched) {
+    matched.branchPin = cleanNewPin;
+    // รักษารหัสเริ่มต้นไว้ไม่ให้ถูกลบ เพื่อใช้กู้คืน
+    if (!matched.initialPin) {
+      matched.initialPin = currentOrInitialPin.trim() || '1234';
+    }
+    const updated = branches.map(b => b.id === matched.id ? matched : b);
+    localStorage.setItem('repair_pro_created_branches_v2', JSON.stringify(updated));
+
+    return {
+      success: true,
+      message: 'เปลี่ยนรหัสผ่านใหม่สำเร็จ (หากวันใดลืมรหัสใหม่ สามารถใช้รหัสเริ่มต้นจากแอดมินเข้าใช้งานได้ตลอดเวลา)',
+    };
+  }
+
+  return { success: false, message: 'ไม่พบข้อมูลสาขานี้' };
 }
 
 /**
